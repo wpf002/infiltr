@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Infiltr — Security Scan Console</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="app">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark">◭</div>
+        <div class="brand-text">
+          <span class="brand-name">INFILTR</span>
+          <span class="brand-sub">scan console</span>
+        </div>
+      </div>
+
+      <nav class="nav">
+        <button class="nav-item active" data-view="scan"><span class="ni-ico">▤</span> Scan</button>
+        <button class="nav-item" data-view="history"><span class="ni-ico">⟲</span> History</button>
+        <button class="nav-item" data-view="modules"><span class="ni-ico">◫</span> Modules</button>
+      </nav>
+
+      <div class="sidebar-section">
+        <div class="section-label">Modules</div>
+        <ul id="module-list" class="module-list"></ul>
+      </div>
+
+      <div class="sidebar-foot">
+        <span id="conn-dot" class="dot dot-idle"></span>
+        <span id="conn-text">offline (sim)</span>
+      </div>
+    </aside>
+
+    <!-- Main -->
+    <main class="main">
+      <!-- Target bar -->
+      <header class="topbar">
+        <div class="target-field">
+          <span class="tf-ico">⌖</span>
+          <input id="target" type="text" placeholder="http://localhost:8080" value="http://localhost:8080" />
+        </div>
+        <select id="profile" class="profile-select" title="Scan profile">
+          <option value="full">full — all modules</option>
+          <option value="quick">quick — nmap + whatweb</option>
+          <option value="full-recon">full-recon</option>
+          <option value="web-audit">web-audit</option>
+          <option value="auth-test">auth-test</option>
+        </select>
+        <button id="run-btn" class="btn btn-primary"><span class="btn-ico">▶</span> Run scan</button>
+        <button id="stop-btn" class="btn btn-ghost" disabled>Stop</button>
+      </header>
+
+      <!-- Scan view -->
+      <section id="view-scan" class="view">
+        <div class="stat-row">
+          <div class="stat-card">
+            <div class="stat-val" id="stat-progress">0<span class="stat-unit">%</span></div>
+            <div class="stat-label">Progress</div>
+            <div class="progress"><div id="progress-bar" class="progress-fill"></div></div>
+          </div>
+          <div class="stat-card sev-critical"><div class="stat-val" id="stat-critical">0</div><div class="stat-label">Critical</div></div>
+          <div class="stat-card sev-high"><div class="stat-val" id="stat-high">0</div><div class="stat-label">High</div></div>
+          <div class="stat-card sev-medium"><div class="stat-val" id="stat-medium">0</div><div class="stat-label">Medium</div></div>
+          <div class="stat-card sev-low"><div class="stat-val" id="stat-low">0</div><div class="stat-label">Low</div></div>
+          <div class="stat-card">
+            <div class="stat-val" id="stat-findings">0</div><div class="stat-label">Findings</div>
+          </div>
+        </div>
+
+        <div class="results-head">
+          <h2>Modules</h2>
+          <div class="results-actions">
+            <button id="export-btn" class="btn btn-ghost btn-sm" disabled>⇩ Export JSON</button>
+            <button id="report-btn" class="btn btn-ghost btn-sm" disabled>⎙ Report</button>
+          </div>
+        </div>
+
+        <div class="table-wrap">
+          <table class="results-table">
+            <thead>
+              <tr><th>Status</th><th>Module</th><th>Category</th><th>Severity</th><th>Findings</th><th>Time</th><th>Summary</th></tr>
+            </thead>
+            <tbody id="results-body">
+              <tr class="empty-row"><td colspan="7">No scan yet — set a target and hit <b>Run scan</b>.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- History view -->
+      <section id="view-history" class="view hidden">
+        <div class="results-head"><h2>Scan history</h2></div>
+        <div class="table-wrap">
+          <table class="results-table">
+            <thead><tr><th>ID</th><th>Target</th><th>Started</th><th>Modules</th><th>Findings</th><th>Top severity</th></tr></thead>
+            <tbody id="history-body"><tr class="empty-row"><td colspan="6">History appears once the API is connected (Phase 3+).</td></tr></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- Modules view -->
+      <section id="view-modules" class="view hidden">
+        <div class="results-head"><h2>Module registry</h2></div>
+        <div id="modules-grid" class="modules-grid"></div>
+      </section>
+    </main>
+
+    <!-- Detail drawer -->
+    <aside id="drawer" class="drawer hidden">
+      <div class="drawer-head">
+        <div>
+          <div id="drawer-title" class="drawer-title">module</div>
+          <div id="drawer-sub" class="drawer-sub"></div>
+        </div>
+        <button id="drawer-close" class="icon-btn">✕</button>
+      </div>
+      <div class="drawer-body">
+        <div id="drawer-findings" class="drawer-findings"></div>
+        <details class="raw-details">
+          <summary>Raw output</summary>
+          <pre id="drawer-raw" class="raw-output"></pre>
+        </details>
+      </div>
+    </aside>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

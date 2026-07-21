@@ -1,0 +1,22 @@
+# Infiltr local lab — deliberately-vulnerable targets for testing wrappers.
+# Everything binds to 127.0.0.1 only. Never expose these to a network.
+services:
+  dvwa:
+    image: vulnerables/web-dvwa:latest
+    container_name: infiltr-dvwa
+    ports:
+      - "127.0.0.1:8080:80"
+    restart: unless-stopped
+    networks: [lab]
+
+  juiceshop:
+    image: bkimminich/juice-shop:latest
+    container_name: infiltr-juiceshop
+    ports:
+      - "127.0.0.1:3000:3000"
+    restart: unless-stopped
+    networks: [lab]
+
+networks:
+  lab:
+    driver: bridge
