@@ -72,9 +72,12 @@ class NmapWrapper(BaseWrapper):
                 banner = " ".join(x for x in [product, version] if x)
 
                 sev = SEV_INFO
-                if svc_name in {"telnet", "ftp", "rlogin", "vnc"}:
+                if svc_name in {
+                    "telnet", "ftp", "rlogin", "vnc",
+                    "mysql", "postgresql", "ms-sql-s", "mongodb", "redis", "oracle-tns",
+                }:
                     sev = SEV_MEDIUM
-                elif svc_name in {"http", "https", "ssh", "smb", "microsoft-ds"}:
+                elif svc_name in {"http", "https", "ssh", "smb", "microsoft-ds", "rdp"}:
                     sev = SEV_LOW
 
                 findings.append(
