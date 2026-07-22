@@ -112,8 +112,8 @@ class BaseWrapper:
         errors: list[str] = []
         if not cls.MODULE_NAME or cls.MODULE_NAME == "base":
             errors.append("MODULE_NAME must be set to a unique value")
-        if cls.CATEGORY not in {"recon", "web", "auth", "misc"}:
-            errors.append(f"CATEGORY '{cls.CATEGORY}' not in recon|web|auth|misc")
+        if cls.CATEGORY not in {"recon", "web", "auth", "misc", "exploit"}:
+            errors.append(f"CATEGORY '{cls.CATEGORY}' not in recon|web|auth|misc|exploit")
         if not cls.TOOL_BIN:
             errors.append("TOOL_BIN must name the tool binary")
         if cls.build_command is BaseWrapper.build_command:
@@ -139,6 +139,10 @@ class BaseWrapper:
     def parse_output(self, stdout: str, stderr: str, returncode: int) -> list[Finding]:
         """Return findings extracted from raw tool output. Override per tool."""
         return []
+
+    def stdin_for(self, target: str) -> str | None:
+        """Data to feed the tool on stdin (e.g. httpx/dnsx read targets there)."""
+        return None
 
     def summarize(self, findings: list[Finding]) -> str:
         if not findings:
@@ -171,10 +175,15 @@ class BaseWrapper:
 
         result.command = " ".join(cmd)
         timeout = int(self.options.get("timeout", self.DEFAULT_TIMEOUT))
+        try:
+            stdin_data = self.stdin_for(target)
+        except Exception:  # noqa: BLE001
+            stdin_data = None
         t0 = time.monotonic()
         try:
             proc = subprocess.run(
                 cmd,
+                input=stdin_data,
                 capture_output=True,
                 text=True,
                 timeout=timeout,

@@ -84,6 +84,18 @@ MODULES: dict[str, dict[str, Any]] = {
         "threads": 8,
         "timeout": 600,
     },
+    # --- extended toolchain ---
+    "nuclei": {"severity": "low,medium,high,critical", "rate_limit": 150, "timeout": 900},
+    "httpx": {"timeout": 180},
+    "subfinder": {"timeout": 300},
+    "dnsx": {"timeout": 120},
+    "dalfox": {"timeout": 600},
+    "sslscan": {"timeout": 180},
+    "testssl": {"timeout": 900},
+    "wafw00f": {"timeout": 120},
+    "wpscan": {"timeout": 600},
+    "masscan": {"ports": "1-1000", "rate": 1000, "timeout": 600},
+    "metasploit": {"module": "auxiliary/scanner/http/http_version", "timeout": 600},
 }
 
 

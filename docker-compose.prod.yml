@@ -20,6 +20,11 @@ services:
       DATABASE_URL: "sqlite:////data/infiltr.db"
     volumes:
       - infiltr-data:/data
+      - ./lab:/app/lab:ro
+    # raw sockets for masscan / full nmap (the scanner is the appliance's purpose)
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
     restart: unless-stopped
     networks: [infiltr]
 

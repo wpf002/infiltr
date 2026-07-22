@@ -10,6 +10,8 @@ ENV DEBIAN_FRONTEND=noninteractive \
 RUN apt-get update && apt-get install -y --no-install-recommends \
       nmap nikto whatweb hydra sqlmap wfuzz ffuf gobuster feroxbuster \
       theharvester seclists git python3 python3-pip python3-venv ca-certificates \
+      nuclei httpx-toolkit subfinder dnsx dalfox sslscan testssl.sh wafw00f \
+      wpscan masscan metasploit-framework \
     && rm -rf /var/lib/apt/lists/*
 
 # XSStrike (cloned tool)
@@ -29,6 +31,9 @@ RUN useradd -m -u 10001 infiltr \
     && chown -R infiltr:infiltr /app /data
 VOLUME ["/data"]
 USER infiltr
+
+# Pre-fetch nuclei templates so scans run offline/fast (best-effort)
+RUN nuclei -update-templates -disable-update-check 2>/dev/null || true
 
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \

@@ -23,12 +23,18 @@ BUILTIN_PROFILES: dict[str, dict] = {
     },
     "full-recon": {
         "description": "All reconnaissance modules",
-        "modules": ["nmap", "theharvester", "whatweb"],
+        "modules": ["nmap", "theharvester", "whatweb", "httpx", "subfinder", "dnsx", "wafw00f"],
         "options": {},
     },
     "web-audit": {
         "description": "All web application testing modules",
-        "modules": ["feroxbuster", "ffuf", "gobuster", "nikto", "sqlmap", "wfuzz", "xsstrike"],
+        "modules": ["feroxbuster", "ffuf", "gobuster", "nikto", "sqlmap", "wfuzz",
+                    "xsstrike", "dalfox", "nuclei", "sslscan", "wpscan"],
+        "options": {},
+    },
+    "vuln-scan": {
+        "description": "Templated vuln scanning + TLS audit",
+        "modules": ["nuclei", "testssl", "sslscan"],
         "options": {},
     },
     "auth-test": {

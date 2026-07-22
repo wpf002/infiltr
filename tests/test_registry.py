@@ -8,7 +8,7 @@ def test_all_modules_have_manifests():
     assert len(mans) >= 11
     for name, m in mans.items():
         assert m["version"]
-        assert m["category"] in {"recon", "web", "auth", "misc"}
+        assert m["category"] in {"recon", "web", "auth", "misc", "exploit"}
         assert "options_schema" in m
         assert "installed" in m
 
