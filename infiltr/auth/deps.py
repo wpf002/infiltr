@@ -17,6 +17,9 @@ from fastapi import Depends, Header, HTTPException
 from . import security, service
 
 AUTH_ENABLED = os.environ.get("INFILTR_AUTH", "0") in ("1", "true", "True")
+# When disabled, only the first (bootstrap admin) account may self-register; after
+# that, accounts must be created by an admin. Recommended for public deployments.
+OPEN_REGISTRATION = os.environ.get("INFILTR_OPEN_REGISTRATION", "1") in ("1", "true", "True")
 RATE_LIMIT = int(os.environ.get("INFILTR_RATE_LIMIT", "60"))       # requests
 RATE_WINDOW = int(os.environ.get("INFILTR_RATE_WINDOW", "60"))     # seconds
 

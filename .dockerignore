@@ -1,0 +1,17 @@
+.git
+.github
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.db
+*.sqlite*
+infiltr.db
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+tests/
+scratch/
+*.log
+.DS_Store
+node_modules/

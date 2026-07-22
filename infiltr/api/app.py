@@ -206,6 +206,9 @@ def auth_config() -> dict[str, Any]:
 
 @app.post("/auth/register")
 def register(body: RegisterBody) -> dict[str, Any]:
+    from ..auth.deps import OPEN_REGISTRATION
+    if not OPEN_REGISTRATION and auth_service.user_count() > 0:
+        raise HTTPException(403, "self-registration is disabled; ask an admin to create your account")
     try:
         user = auth_service.create_user(body.email, body.password)
     except ValueError as exc:

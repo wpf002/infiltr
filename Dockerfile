@@ -43,7 +43,8 @@ USER infiltr
 RUN nuclei -ut 2>&1 | tail -2 || true
 
 EXPOSE 8000
+# $PORT is injected by Railway/Heroku-style platforms; defaults to 8000 locally.
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
-  CMD python3 -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health').status==200 else 1)" || exit 1
+  CMD python3 -c "import os,urllib.request,sys; p=os.environ.get('PORT','8000'); sys.exit(0 if urllib.request.urlopen(f'http://127.0.0.1:{p}/health').status==200 else 1)" || exit 1
 
-CMD ["python3", "-m", "uvicorn", "infiltr.api.app:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["sh", "-c", "exec python3 -m uvicorn infiltr.api.app:app --host 0.0.0.0 --port ${PORT:-8000}"]
