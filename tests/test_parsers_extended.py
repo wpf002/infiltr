@@ -60,6 +60,12 @@ def test_dalfox_parser_array():
     assert len(f) == 1 and f[0].type == "xss" and f[0].severity == "high"
 
 
+def test_dalfox_skips_empty_objects():
+    # dalfox emits [{}] / empty objects when nothing is found — must not become findings
+    assert DalfoxWrapper().parse_output("[{}]", "", 0) == []
+    assert DalfoxWrapper().parse_output('[{},{"severity":"high"}]', "", 0) == []
+
+
 def test_sslscan_parser():
     out = """  SSLv3     enabled
   TLSv1.0   enabled

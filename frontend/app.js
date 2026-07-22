@@ -61,6 +61,15 @@ const LiveApi = {
     return r.json();
   },
 
+  async getExplanations() {
+    try {
+      const r = await fetch(`${API_BASE}/explanations`);
+      return r.ok ? r.json() : { modules: {}, findings: {} };
+    } catch (_) {
+      return { modules: {}, findings: {} };
+    }
+  },
+
   async createProfile(body) {
     const r = await fetch(`${API_BASE}/profiles`, {
       method: "POST",
@@ -132,6 +141,7 @@ const SimApi = {
     }));
   },
   async createProfile(body) { PROFILE_MODULES[body.name] = body.modules; return { ...body, id: null }; },
+  async getExplanations() { return { modules: {}, findings: {} }; },
   async runScan(target, { modules, profile }, cb) {
     const names = modules && modules.length ? modules : PROFILE_MODULES[profile] || PROFILE_MODULES.full;
     cb.onStart(names, null);
@@ -244,13 +254,21 @@ function openDrawer(moduleName) {
   if (!r || r.phase === "running") return;
   $("#drawer-title").textContent = r.module;
   $("#drawer-sub").textContent = `${r.category || ""} · ${r.status || ""} · ${r.severity || "info"} · ${r.duration || 0}s`;
+  const explain = state.explain || { modules: {}, findings: {} };
   const findings = r.findings || [];
-  $("#drawer-findings").innerHTML = findings.length
-    ? findings.map((f) => `<div class="finding-item ${f.severity}">
-        <div class="fi-top"><span class="fi-name">${escapeHtml(f.name)} ${escapeHtml(f.value || "")}</span>${sevPill(f.severity)}</div>
-        ${f.detail ? `<div class="fi-detail">${escapeHtml(f.detail)}</div>` : ""}
-      </div>`).join("")
+  const modBlurb = explain.modules?.[r.module]
+    ? `<div class="mod-explain">${escapeHtml(explain.modules[r.module])}</div>` : "";
+  const findingsHtml = findings.length
+    ? findings.map((f) => {
+        const expl = explain.findings?.[f.type];
+        return `<div class="finding-item ${f.severity}">
+          <div class="fi-top"><span class="fi-name">${escapeHtml(f.name)} ${escapeHtml(f.value || "")}</span>${sevPill(f.severity)}</div>
+          ${f.detail ? `<div class="fi-detail">${escapeHtml(f.detail)}</div>` : ""}
+          ${expl ? `<div class="fi-explain">${escapeHtml(expl)}</div>` : ""}
+        </div>`;
+      }).join("")
     : `<div class="fi-detail">No findings for this module.</div>`;
+  $("#drawer-findings").innerHTML = modBlurb + findingsHtml;
   $("#drawer-raw").textContent = r.raw_output || (r.error ? `[error] ${r.error}` : "(no raw output)");
   $("#drawer").classList.remove("hidden");
 }
@@ -464,6 +482,7 @@ async function init() {
   $("#conn-dot").className = "dot " + (state.live ? "dot-live" : "dot-idle");
   $("#conn-text").textContent = state.live ? "connected" : "offline (sim)";
 
+  state.explain = await Api.getExplanations();
   const mods = await Api.getModules();
   renderSidebarModules(mods);
   renderModulesGrid(mods);

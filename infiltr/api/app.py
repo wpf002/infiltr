@@ -71,6 +71,13 @@ def modules() -> list[dict[str, Any]]:
     return module_status()
 
 
+@app.get("/explanations")
+def explanations() -> dict[str, Any]:
+    """Plain-English descriptions for every module and finding type."""
+    from ..explain import all_explanations
+    return all_explanations()
+
+
 @app.get("/modules/invalid")
 def modules_invalid() -> dict[str, Any]:
     from ..engine import invalid_modules

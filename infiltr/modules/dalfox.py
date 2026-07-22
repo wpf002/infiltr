@@ -38,6 +38,11 @@ class DalfoxWrapper(BaseWrapper):
                     except json.JSONDecodeError:
                         pass
         for o in objs:
+            if not isinstance(o, dict):
+                continue
+            # dalfox can emit empty objects ({}) — skip anything without a real PoC
+            if not (o.get("poc") or o.get("data") or o.get("param") or o.get("evidence")):
+                continue
             sev = _SEV.get(str(o.get("severity", "high")).lower(), SEV_HIGH)
             findings.append(
                 Finding(
