@@ -14,6 +14,15 @@ if [ -d .venv ]; then
   source .venv/bin/activate
 fi
 
+# --- full stack on by default -----------------------------------------
+# background scheduler + a signing key so every subsystem is live locally.
+export INFILTR_SCHEDULER="${INFILTR_SCHEDULER:-1}"
+if [ -z "${INFILTR_SECRET_KEY:-}" ]; then
+  export INFILTR_SECRET_KEY="$(python3 -c 'import secrets;print(secrets.token_urlsafe(48))')"
+fi
+# Auth endpoints are always available; enforcement is opt-in (INFILTR_AUTH=1).
+export INFILTR_AUTH="${INFILTR_AUTH:-0}"
+
 # HTTPS-only mode when a cert/key pair is provided
 TLS_ARGS=()
 SCHEME="http"
@@ -24,4 +33,7 @@ fi
 
 echo "[*] Infiltr console + API -> ${SCHEME}://${HOST}:${PORT}/"
 echo "[*] API docs             -> ${SCHEME}://${HOST}:${PORT}/docs"
-exec uvicorn infiltr.api.app:app --host "$HOST" --port "$PORT" --reload "${TLS_ARGS[@]}"
+echo "[*] scheduler=${INFILTR_SCHEDULER}  auth_enforced=${INFILTR_AUTH}"
+PY="${PYTHON:-python3}"
+# ${arr[@]+...} guards empty-array expansion under `set -u` on bash 3.2 (macOS)
+exec "$PY" -m uvicorn infiltr.api.app:app --host "$HOST" --port "$PORT" --reload ${TLS_ARGS[@]+"${TLS_ARGS[@]}"}
