@@ -77,6 +77,80 @@ def save_scan(
         return run.id
 
 
+def start_scan_run(
+    target: str,
+    module_names: list[str],
+    profile: str | None = None,
+    user_id: int | None = None,
+) -> int:
+    """Create a ScanRun row in the 'running' state; returns its id for live polling."""
+    init_db()
+    with session_scope() as s:
+        run = ScanRun(
+            target=target,
+            profile=profile,
+            started_at=datetime.now(timezone.utc),
+            module_count=len(module_names),
+            status="running",
+            user_id=user_id,
+        )
+        s.add(run)
+        s.flush()
+        return run.id
+
+
+def record_module_result(scan_id: int, res: ScanResult) -> None:
+    """Insert one module's result + findings into a running scan and update aggregates."""
+    init_db()
+    with session_scope() as s:
+        run = s.get(ScanRun, scan_id)
+        if run is None:
+            return
+        mr = ModuleResult(
+            scan_id=scan_id,
+            module=res.module,
+            category=res.category,
+            status=res.status,
+            severity=res.severity,
+            duration=res.duration,
+            returncode=res.returncode,
+            summary=res.summary,
+            command=res.command,
+            raw_output=res.raw_output or "",
+            error=res.error,
+        )
+        s.add(mr)
+        s.flush()
+        for f in res.findings:
+            s.add(
+                Finding(
+                    scan_id=scan_id,
+                    module_result_id=mr.id,
+                    module=res.module,
+                    type=f.type,
+                    name=f.name,
+                    value=f.value,
+                    detail=f.detail,
+                    severity=f.severity,
+                    meta=f.metadata or {},
+                )
+            )
+        run.finding_count = (run.finding_count or 0) + len(res.findings)
+        if severity_rank(res.severity) > severity_rank(run.top_severity):
+            run.top_severity = res.severity
+
+
+def finalize_scan_run(scan_id: int, duration: float, status: str = "completed") -> None:
+    init_db()
+    with session_scope() as s:
+        run = s.get(ScanRun, scan_id)
+        if run is None:
+            return
+        run.finished_at = datetime.now(timezone.utc)
+        run.duration = round(duration, 2)
+        run.status = status
+
+
 def list_scans(limit: int = 50, user_id: int | None = None) -> list[dict[str, Any]]:
     init_db()
     with session_scope() as s:

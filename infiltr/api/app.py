@@ -1,0 +1,120 @@
+"""FastAPI application exposing scans, modules, history, and live progress."""
+from __future__ import annotations
+
+import asyncio
+import json
+import os
+from typing import Any, Optional
+
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, Field
+
+from .. import store
+from ..engine import module_status, discover
+from .manager import manager
+
+app = FastAPI(title="Infiltr API", version="0.12.0")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=os.environ.get("INFILTR_CORS", "*").split(","),
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+# ---- schemas ----------------------------------------------------------
+class ScanRequest(BaseModel):
+    target: str = Field(..., examples=["http://localhost:8080"])
+    modules: Optional[list[str]] = None
+    profile: Optional[str] = None
+    options: Optional[dict[str, Any]] = None
+    skip_missing: bool = False
+    workers: int = 4
+
+
+class ScanStarted(BaseModel):
+    scan_id: int
+    target: str
+    modules: list[str]
+
+
+# ---- routes -----------------------------------------------------------
+@app.get("/health")
+def health() -> dict[str, str]:
+    return {"status": "ok", "service": "infiltr"}
+
+
+@app.get("/modules")
+def modules() -> list[dict[str, Any]]:
+    return module_status()
+
+
+@app.post("/scan", response_model=ScanStarted)
+async def start_scan(req: ScanRequest) -> ScanStarted:
+    from ..profiles import resolve_modules
+    modules = resolve_modules(req.profile, req.modules)
+    registry = discover()
+    selected = [m for m in modules if m in registry] if modules else list(registry)
+    if not selected:
+        raise HTTPException(400, "no valid modules selected")
+    scan_id = await manager.start_scan(
+        target=req.target,
+        modules=selected,
+        options=req.options,
+        profile=req.profile,
+        workers=req.workers,
+        skip_missing=req.skip_missing,
+    )
+    return ScanStarted(scan_id=scan_id, target=req.target, modules=selected)
+
+
+@app.get("/scans")
+def list_scans(limit: int = 50) -> list[dict[str, Any]]:
+    return store.list_scans(limit=limit)
+
+
+@app.get("/scan/{scan_id}")
+def get_scan(scan_id: int) -> dict[str, Any]:
+    scan = store.get_scan(scan_id)
+    if scan is None:
+        raise HTTPException(404, "scan not found")
+    return scan
+
+
+@app.delete("/scan/{scan_id}")
+def delete_scan(scan_id: int) -> dict[str, Any]:
+    if not store.delete_scan(scan_id):
+        raise HTTPException(404, "scan not found")
+    return {"deleted": scan_id}
+
+
+@app.get("/scan/{scan_id}/events")
+async def scan_events(scan_id: int, request: Request) -> StreamingResponse:
+    """Server-Sent Events stream of live scan progress."""
+    async def event_gen():
+        async for evt in manager.subscribe(scan_id):
+            if await request.is_disconnected():
+                break
+            yield f"event: {evt.get('type', 'message')}\ndata: {json.dumps(evt)}\n\n"
+        yield "event: close\ndata: {}\n\n"
+
+    return StreamingResponse(
+        event_gen(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"},
+    )
+
+
+# ---- static frontend (single-origin dev) -----------------------------
+_FRONTEND = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "frontend")
+if os.path.isdir(_FRONTEND):
+    app.mount("/ui", StaticFiles(directory=_FRONTEND, html=True), name="ui")
+
+    @app.get("/")
+    def index() -> FileResponse:
+        return FileResponse(os.path.join(_FRONTEND, "index.html"))
