@@ -8,7 +8,7 @@ from typing import Any, Optional
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse, FileResponse
+from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -111,10 +111,8 @@ async def scan_events(scan_id: int, request: Request) -> StreamingResponse:
 
 
 # ---- static frontend (single-origin dev) -----------------------------
+# Mounted LAST at "/" so API routes above win; unmatched paths (index.html,
+# styles.css, app.js, …) are served from the frontend directory.
 _FRONTEND = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "frontend")
 if os.path.isdir(_FRONTEND):
-    app.mount("/ui", StaticFiles(directory=_FRONTEND, html=True), name="ui")
-
-    @app.get("/")
-    def index() -> FileResponse:
-        return FileResponse(os.path.join(_FRONTEND, "index.html"))
+    app.mount("/", StaticFiles(directory=_FRONTEND, html=True), name="frontend")
