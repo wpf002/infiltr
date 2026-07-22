@@ -136,6 +136,45 @@ def delete_scan(scan_id: int) -> dict[str, Any]:
     return {"deleted": scan_id}
 
 
+class AskBody(BaseModel):
+    question: str
+
+
+@app.post("/scan/{scan_id}/analyze")
+def analyze_scan(scan_id: int) -> dict[str, Any]:
+    from ..ai import flint
+    scan = store.get_scan(scan_id)
+    if scan is None:
+        raise HTTPException(404, "scan not found")
+    return {
+        "scan_id": scan_id,
+        "mode": "online" if flint.online else "offline",
+        "summary": flint.summarize(scan),
+        "most_critical": flint.most_critical(scan),
+        "attack_paths": flint.attack_paths(scan),
+    }
+
+
+@app.post("/scan/{scan_id}/ask")
+def ask_scan(scan_id: int, body: AskBody) -> dict[str, Any]:
+    from ..ai import flint
+    scan = store.get_scan(scan_id)
+    if scan is None:
+        raise HTTPException(404, "scan not found")
+    return {"scan_id": scan_id, "question": body.question, "answer": flint.ask(scan, body.question)}
+
+
+@app.post("/scan/{scan_id}/flag-fp")
+def flag_false_positives(scan_id: int, apply: bool = False) -> dict[str, Any]:
+    from ..ai import flint
+    scan = store.get_scan(scan_id)
+    if scan is None:
+        raise HTTPException(404, "scan not found")
+    flagged = flint.flag_false_positives(scan)
+    applied = store.mark_false_positives(scan_id, flagged) if apply else 0
+    return {"scan_id": scan_id, "flagged": flagged, "applied": applied}
+
+
 @app.get("/scan/{scan_id}/report")
 def scan_report(scan_id: int, format: str = "html", client: str = "") -> Response:
     from ..reporting import render_html, render_markdown, render_pdf, ReportTheme, PDF_AVAILABLE

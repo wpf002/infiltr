@@ -186,6 +186,22 @@ def scan_findings(scan_id: int) -> list[dict[str, Any]]:
         return [f.to_dict() for f in s.scalars(stmt).all()]
 
 
+def mark_false_positives(scan_id: int, items: list[dict[str, Any]]) -> int:
+    """Set false_positive=True on findings matching (module, name). Returns count."""
+    init_db()
+    if not items:
+        return 0
+    pairs = {(i.get("module"), i.get("name")) for i in items}
+    n = 0
+    with session_scope() as s:
+        stmt = select(Finding).where(Finding.scan_id == scan_id)
+        for f in s.scalars(stmt).all():
+            if (f.module, f.name) in pairs:
+                f.false_positive = True
+                n += 1
+    return n
+
+
 def severity_histogram(scan_id: int) -> dict[str, int]:
     """Count findings per severity for a scan."""
     init_db()

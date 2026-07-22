@@ -274,6 +274,7 @@ async function runScan() {
       onDone: () => {
         $("#export-btn").disabled = false;
         $("#report-btn").disabled = !state.live;
+        $("#analyze-btn").disabled = !state.live;
         if (state.live) loadHistory();
       },
     });
@@ -309,6 +310,27 @@ async function exportJson() {
 function openReport() {
   if (state.live && state.scanId) {
     window.open(`${API_BASE}/scan/${state.scanId}/report?format=html`, "_blank");
+  }
+}
+
+async function analyzeScan() {
+  if (!state.live || !state.scanId) return;
+  $("#drawer-title").textContent = "✦ Flint analysis";
+  $("#drawer-sub").textContent = "analyzing…";
+  $("#drawer-findings").innerHTML = `<div class="fi-detail"><span class="spinner"></span> Contacting analysis layer…</div>`;
+  $("#drawer-raw").textContent = "";
+  $("#drawer").classList.remove("hidden");
+  try {
+    const r = await fetch(`${API_BASE}/scan/${state.scanId}/analyze`, { method: "POST" });
+    const a = await r.json();
+    $("#drawer-sub").textContent = `mode: ${a.mode}`;
+    const paths = (a.attack_paths || []).map((p) => `<li>${escapeHtml(p)}</li>`).join("");
+    $("#drawer-findings").innerHTML = `
+      <div class="finding-item high"><div class="fi-name">Summary</div><div class="fi-detail">${escapeHtml(a.summary)}</div></div>
+      <div class="finding-item critical"><div class="fi-name">Most critical</div><div class="fi-detail">${escapeHtml(a.most_critical)}</div></div>
+      <div class="finding-item medium"><div class="fi-name">Suggested next steps</div><div class="fi-detail"><ol style="margin-left:16px">${paths}</ol></div></div>`;
+  } catch (err) {
+    $("#drawer-findings").innerHTML = `<div class="fi-detail">Analysis failed: ${escapeHtml(err.message)}</div>`;
   }
 }
 
@@ -381,6 +403,7 @@ async function loadScan(id) {
   updateStats();
   $("#export-btn").disabled = false;
   $("#report-btn").disabled = !state.live;
+  $("#analyze-btn").disabled = !state.live;
 }
 
 // ---------------------------------------------------------------------
@@ -422,6 +445,7 @@ async function init() {
   $("#save-profile-btn").addEventListener("click", saveProfile);
   $("#export-btn").addEventListener("click", exportJson);
   $("#report-btn").addEventListener("click", openReport);
+  $("#analyze-btn").addEventListener("click", analyzeScan);
   $("#drawer-close").addEventListener("click", closeDrawer);
   document.querySelectorAll(".nav-item").forEach((b) => b.addEventListener("click", () => switchView(b.dataset.view)));
   $("#target").addEventListener("keydown", (e) => { if (e.key === "Enter") runScan(); });
