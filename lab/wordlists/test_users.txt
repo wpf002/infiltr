@@ -1,0 +1,6 @@
+admin
+root
+test
+redteam
+analyst
+guest

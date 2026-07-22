@@ -149,6 +149,17 @@ def test_hydra_parser():
     assert all(x.severity == "critical" for x in f)
 
 
+def test_hydra_parser_9x_misc_field():
+    # hydra 9.x inserts a "misc:" field between host: and login:
+    out = """[80][http-get] host: victim   misc: /   login: redteam   password: letmein123
+[80][http-get] host: victim   misc: /   login: analyst   password: winter2024
+1 of 1 target successfully completed, 2 valid passwords found"""
+    f = HydraWrapper().parse_output(out, "", 0)
+    creds = {(x.metadata["login"], x.metadata["password"]) for x in f}
+    assert ("redteam", "letmein123") in creds
+    assert ("analyst", "winter2024") in creds
+
+
 def test_theharvester_asn_and_linkedin():
     out = """[*] Emails found:
 ceo@target.local

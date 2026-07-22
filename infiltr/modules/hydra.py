@@ -8,8 +8,10 @@ from ..utils import host_port, strip_ansi, base_url
 from urllib.parse import urlparse
 
 # "[80][http-get] host: 127.0.0.1   login: admin   password: password"
+# hydra 9.x may insert extra fields (e.g. "misc: /") between host: and login:,
+# so allow anything up to login:.
 _CRED_RE = re.compile(
-    r"\[\d+\]\[[^\]]+\]\s+host:\s*(\S+)\s+login:\s*(\S+)\s+password:\s*(\S*)", re.I
+    r"\[\d+\]\[[^\]]+\]\s+host:\s*(\S+).*?login:\s*(\S+)\s+password:\s*(\S*)", re.I
 )
 
 

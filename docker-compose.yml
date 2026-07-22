@@ -17,6 +17,18 @@ services:
     restart: unless-stopped
     networks: [lab]
 
+  # Weak Basic-Auth target with known test accounts (redteam:letmein123, analyst:winter2024)
+  victim:
+    image: nginx:alpine
+    container_name: infiltr-victim
+    ports:
+      - "127.0.0.1:8081:80"
+    volumes:
+      - ./lab/victim/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./lab/victim/htpasswd:/etc/nginx/.htpasswd:ro
+    restart: unless-stopped
+    networks: [lab]
+
 networks:
   lab:
     driver: bridge

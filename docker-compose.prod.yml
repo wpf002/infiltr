@@ -23,11 +23,22 @@ services:
     restart: unless-stopped
     networks: [infiltr]
 
-  # Optional in-network lab target (remove for real deployments)
+  # Optional in-network lab targets (remove for real deployments)
   dvwa:
     image: vulnerables/web-dvwa:latest
     container_name: infiltr-dvwa
     restart: unless-stopped
+    networks: [infiltr]
+
+  # Weak Basic-Auth target with known test accounts, for the hydra module
+  # (redteam:letmein123, analyst:winter2024)
+  victim:
+    image: nginx:alpine
+    container_name: infiltr-victim
+    restart: unless-stopped
+    volumes:
+      - ./lab/victim/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./lab/victim/htpasswd:/etc/nginx/.htpasswd:ro
     networks: [infiltr]
 
 volumes:
