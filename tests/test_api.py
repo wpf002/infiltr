@@ -139,5 +139,33 @@ def test_profiles_crud(server):
     assert httpx.delete(f"{server}/profiles/{pid}").status_code == 404
 
 
+def test_schedule_crud_and_run_now(server):
+    # invalid cron rejected
+    assert httpx.post(f"{server}/schedules", json={"target": "http://localhost:8080", "cron": "bad"}).status_code == 400
+
+    created = httpx.post(f"{server}/schedules", json={
+        "target": "http://localhost:8080", "cron": "*/30 * * * *", "name": "nightly", "profile": "quick",
+    }).json()
+    sid = created["id"]
+    assert any(s["id"] == sid for s in httpx.get(f"{server}/schedules").json())
+
+    # run now -> triggers a scan using the profile
+    run = httpx.post(f"{server}/schedules/{sid}/run").json()
+    scan_id = run["scan_id"]
+    for _ in range(100):
+        scan = httpx.get(f"{server}/scan/{scan_id}").json()
+        if scan["status"] == "completed":
+            break
+        time.sleep(0.1)
+    assert {r["module"] for r in scan["results"]} == {"nmap", "whatweb"}
+
+    # delta + trend endpoints respond
+    assert "new" in httpx.get(f"{server}/scan/{scan_id}/delta").json()
+    trend = httpx.get(f"{server}/targets/trend", params={"target": "http://localhost:8080"}).json()
+    assert isinstance(trend, list) and trend
+
+    assert httpx.delete(f"{server}/schedules/{sid}").status_code == 200
+
+
 def test_unknown_scan_404(server):
     assert httpx.get(f"{server}/scan/99999").status_code == 404

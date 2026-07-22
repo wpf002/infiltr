@@ -180,6 +180,9 @@ body {
 .sev-pill.low { color: var(--low); }
 .sev-pill.info { color: var(--info); }
 
+.new-tag { font-family: var(--mono); font-size: 10px; font-weight: 700; color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent); padding: 1px 6px; border-radius: 5px; letter-spacing: .5px; }
+
 .spinner {
   width: 12px; height: 12px; border: 2px solid var(--bg-3); border-top-color: var(--accent-2);
   border-radius: 50%; display: inline-block; animation: spin .7s linear infinite; vertical-align: -2px;

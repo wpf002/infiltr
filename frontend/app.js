@@ -180,9 +180,11 @@ const sevPill = (s) => `<span class="sev-pill ${s}">${s}</span>`;
 
 function renderRow(r) {
   const findings = r.findings ? r.findings.length : 0;
+  const newCount = (r.findings || []).filter((f) => f.is_new).length;
+  const newTag = newCount ? ` <span class="new-tag">◆ ${newCount} NEW</span>` : "";
   return `<tr data-module="${r.module}">
     <td>${statusBadge(r.status, r.phase)}</td>
-    <td class="mono">${r.module}</td>
+    <td class="mono">${r.module}${newTag}</td>
     <td>${r.category || ""}</td>
     <td>${sevPill(r.severity || "info")}</td>
     <td class="mono">${r.phase === "running" ? "…" : findings}</td>

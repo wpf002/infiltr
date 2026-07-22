@@ -159,6 +159,33 @@ class AuditLog(Base):
         }
 
 
+class Schedule(Base):
+    """A recurring scan: target + profile + cron expression + alert config."""
+    __tablename__ = "schedules"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(64), default="")
+    target: Mapped[str] = mapped_column(String(512))
+    profile: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    cron: Mapped[str] = mapped_column(String(64), default="0 * * * *")  # min hr dom mon dow
+    enabled: Mapped[bool] = mapped_column(default=True)
+    alerts: Mapped[Dict[str, Any]] = mapped_column(JSON, default=dict)  # {webhook, slack, email}
+    user_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+    last_run: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    last_scan_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id, "name": self.name, "target": self.target,
+            "profile": self.profile, "cron": self.cron, "enabled": self.enabled,
+            "alerts": self.alerts or {}, "user_id": self.user_id,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "last_run": self.last_run.isoformat() if self.last_run else None,
+            "last_scan_id": self.last_scan_id,
+        }
+
+
 class Profile(Base):
     """A named, reusable scan configuration (user-defined; built-ins live in code)."""
     __tablename__ = "profiles"

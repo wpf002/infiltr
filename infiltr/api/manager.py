@@ -78,8 +78,14 @@ class ScanManager:
             self._broadcast(job, {"type": "error", "scan_id": job.scan_id, "error": str(exc)})
 
         await asyncio.to_thread(store.finalize_scan_run, job.scan_id, time.monotonic() - t0, status)
+        # delta detection: flag findings new since the previous scan of this target
+        delta = {}
+        try:
+            delta = await asyncio.to_thread(store.apply_delta, job.scan_id)
+        except Exception:  # noqa: BLE001
+            pass
         job.status = status
-        self._broadcast(job, {"type": "done", "scan_id": job.scan_id, "status": status})
+        self._broadcast(job, {"type": "done", "scan_id": job.scan_id, "status": status, "delta": delta})
         job.done.set()
 
     # ---- pub/sub ------------------------------------------------------

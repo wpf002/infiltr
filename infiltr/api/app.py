@@ -17,8 +17,23 @@ from ..engine import module_status, discover
 from ..auth import service as auth_service
 from ..auth.deps import current_user, require_user, require_role, rate_limit, user_id_of, AUTH_ENABLED
 from .manager import manager
+from ..scheduler.service import Scheduler
 
 app = FastAPI(title="Infiltr API", version="0.12.0")
+
+_scheduler = Scheduler(manager)
+SCHEDULER_ENABLED = os.environ.get("INFILTR_SCHEDULER", "0") in ("1", "true", "True")
+
+
+@app.on_event("startup")
+async def _start_scheduler() -> None:
+    if SCHEDULER_ENABLED:
+        _scheduler.start()
+
+
+@app.on_event("shutdown")
+async def _stop_scheduler() -> None:
+    await _scheduler.stop()
 
 app.add_middleware(
     CORSMiddleware,
@@ -308,6 +323,83 @@ def flag_false_positives(scan_id: int, apply: bool = False) -> dict[str, Any]:
     flagged = flint.flag_false_positives(scan)
     applied = store.mark_false_positives(scan_id, flagged) if apply else 0
     return {"scan_id": scan_id, "flagged": flagged, "applied": applied}
+
+
+@app.get("/scan/{scan_id}/delta")
+def scan_delta(scan_id: int, user=Depends(current_user)) -> dict[str, Any]:
+    scan = store.get_scan(scan_id, user_id=user_id_of(user))
+    if scan is None:
+        raise HTTPException(404, "scan not found")
+    return store.scan_delta(scan_id)
+
+
+@app.get("/targets/trend")
+def target_trend(target: str, user=Depends(current_user)) -> list[dict[str, Any]]:
+    return store.target_trend(target, user_id=user_id_of(user))
+
+
+# ---- schedules --------------------------------------------------------
+class ScheduleBody(BaseModel):
+    target: str
+    cron: str = "0 * * * *"
+    name: str = ""
+    profile: Optional[str] = None
+    alerts: Optional[dict[str, Any]] = None
+    enabled: Optional[bool] = None
+
+
+@app.get("/schedules")
+def list_schedules(user=Depends(current_user)) -> list[dict[str, Any]]:
+    return store.list_schedules(user_id=user_id_of(user))
+
+
+@app.post("/schedules")
+def create_schedule(body: ScheduleBody, user=Depends(current_user)) -> dict[str, Any]:
+    from ..scheduler import validate_cron
+    if not validate_cron(body.cron):
+        raise HTTPException(400, "invalid cron expression (expected: min hr dom mon dow)")
+    return store.create_schedule(
+        target=body.target, cron=body.cron, name=body.name, profile=body.profile,
+        alerts=body.alerts, user_id=user_id_of(user),
+    )
+
+
+@app.get("/schedules/{schedule_id}")
+def get_schedule(schedule_id: int, user=Depends(current_user)) -> dict[str, Any]:
+    sc = store.get_schedule(schedule_id, user_id=user_id_of(user))
+    if sc is None:
+        raise HTTPException(404, "schedule not found")
+    return sc
+
+
+@app.put("/schedules/{schedule_id}")
+def update_schedule(schedule_id: int, body: ScheduleBody, user=Depends(current_user)) -> dict[str, Any]:
+    from ..scheduler import validate_cron
+    if body.cron and not validate_cron(body.cron):
+        raise HTTPException(400, "invalid cron expression")
+    sc = store.update_schedule(
+        schedule_id, user_id=user_id_of(user), target=body.target, cron=body.cron,
+        name=body.name, profile=body.profile, alerts=body.alerts, enabled=body.enabled,
+    )
+    if sc is None:
+        raise HTTPException(404, "schedule not found")
+    return sc
+
+
+@app.delete("/schedules/{schedule_id}")
+def delete_schedule(schedule_id: int, user=Depends(current_user)) -> dict[str, Any]:
+    if not store.delete_schedule(schedule_id, user_id=user_id_of(user)):
+        raise HTTPException(404, "schedule not found")
+    return {"deleted": schedule_id}
+
+
+@app.post("/schedules/{schedule_id}/run")
+async def run_schedule_now(schedule_id: int, user=Depends(current_user)) -> dict[str, Any]:
+    sc = store.get_schedule(schedule_id, user_id=user_id_of(user))
+    if sc is None:
+        raise HTTPException(404, "schedule not found")
+    scan_id = await _scheduler.run_schedule(sc)
+    return {"schedule_id": schedule_id, "scan_id": scan_id}
 
 
 @app.get("/scan/{scan_id}/report")
