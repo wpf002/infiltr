@@ -2,23 +2,37 @@
 from __future__ import annotations
 
 import json
+import shutil
 
 from ..base import BaseWrapper, Finding, SEV_INFO, SEV_LOW, SEV_MEDIUM
 from ..utils import base_url
+
+# Kali ships the ProjectDiscovery binary as "httpx-toolkit"; upstream names it "httpx".
+_HTTPX_BINS = ("httpx-toolkit", "httpx")
 
 
 class HttpxWrapper(BaseWrapper):
     MODULE_NAME = "httpx"
     CATEGORY = "recon"
-    TOOL_BIN = "httpx"
+    TOOL_BIN = "httpx-toolkit"
     DESCRIPTION = "HTTP probe: status, title, tech, server, TLS"
     VERSION = "1.0"
     DEFAULT_TIMEOUT = 180
 
+    @classmethod
+    def is_installed(cls) -> bool:
+        return any(shutil.which(b) for b in _HTTPX_BINS)
+
+    def _bin(self) -> str:
+        for b in _HTTPX_BINS:
+            if shutil.which(b):
+                return b
+        return self.TOOL_BIN
+
     def build_command(self, target: str) -> list[str]:
         # target is fed on stdin; httpx reads URLs from stdin with -json output
         return [
-            self.TOOL_BIN,
+            self._bin(),
             "-json", "-silent", "-no-color",
             "-status-code", "-title", "-tech-detect", "-web-server", "-ip",
         ]

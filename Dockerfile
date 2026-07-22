@@ -6,13 +6,19 @@ ENV DEBIAN_FRONTEND=noninteractive \
     INFILTR_XSSTRIKE=/opt/XSStrike/xsstrike.py \
     INFILTR_WORDLIST=/usr/share/wordlists/dirb/common.txt
 
-# Scan tools + python
+# Scan tools + python (dalfox isn't packaged in Kali — installed via Go below)
 RUN apt-get update && apt-get install -y --no-install-recommends \
       nmap nikto whatweb hydra sqlmap wfuzz ffuf gobuster feroxbuster \
       theharvester seclists git python3 python3-pip python3-venv ca-certificates \
-      nuclei httpx-toolkit subfinder dnsx dalfox sslscan testssl.sh wafw00f \
+      nuclei httpx-toolkit subfinder dnsx sslscan testssl.sh wafw00f \
       wpscan masscan metasploit-framework \
     && rm -rf /var/lib/apt/lists/*
+
+# dalfox (Go tool, not in the Kali repo) — build then drop the Go toolchain
+RUN apt-get update && apt-get install -y --no-install-recommends golang git \
+    && GOBIN=/usr/local/bin GOFLAGS=-buildvcs=false go install github.com/hahwul/dalfox/v2@latest \
+    && apt-get purge -y golang && apt-get autoremove -y \
+    && rm -rf /var/lib/apt/lists/* /root/go /root/.cache
 
 # XSStrike (cloned tool)
 RUN git clone --depth 1 https://github.com/s0md3v/XSStrike.git /opt/XSStrike \
