@@ -38,8 +38,9 @@ RUN useradd -m -u 10001 infiltr \
 VOLUME ["/data"]
 USER infiltr
 
-# Pre-fetch nuclei templates so scans run offline/fast (best-effort)
-RUN nuclei -update-templates -disable-update-check 2>/dev/null || true
+# Pre-fetch nuclei templates so scans run offline/fast
+# (NOT with -disable-update-check — that flag suppresses the initial install)
+RUN nuclei -ut 2>&1 | tail -2 || true
 
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \

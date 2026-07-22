@@ -3,10 +3,14 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import tempfile
 
 from ..base import BaseWrapper, Finding, SEV_INFO, SEV_LOW, SEV_MEDIUM, SEV_HIGH, SEV_CRITICAL
 from ..utils import host_port
+
+# Kali packages the binary as "testssl"; upstream ships "testssl.sh".
+_TESTSSL_BINS = ("testssl", "testssl.sh")
 
 _SEV = {
     "INFO": SEV_INFO, "OK": SEV_INFO, "LOW": SEV_LOW, "MEDIUM": SEV_MEDIUM,
@@ -17,10 +21,20 @@ _SEV = {
 class TestsslWrapper(BaseWrapper):
     MODULE_NAME = "testssl"
     CATEGORY = "web"
-    TOOL_BIN = "testssl.sh"
+    TOOL_BIN = "testssl"
     DESCRIPTION = "Deep TLS/SSL vulnerability + config audit"
     VERSION = "1.0"
     DEFAULT_TIMEOUT = 900
+
+    @classmethod
+    def is_installed(cls) -> bool:
+        return any(shutil.which(b) for b in _TESTSSL_BINS)
+
+    def _bin(self) -> str:
+        for b in _TESTSSL_BINS:
+            if shutil.which(b):
+                return b
+        return self.TOOL_BIN
 
     def build_command(self, target: str) -> list[str]:
         host, port = host_port(target)
@@ -28,7 +42,7 @@ class TestsslWrapper(BaseWrapper):
             prefix="infiltr_testssl_", suffix=".json", delete=False
         ).name
         return [
-            self.TOOL_BIN, "--quiet", "--color", "0",
+            self._bin(), "--quiet", "--color", "0",
             "--jsonfile", self._outfile,
             f"{host}:{port or 443}",
         ]

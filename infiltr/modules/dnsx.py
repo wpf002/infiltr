@@ -2,9 +2,23 @@
 from __future__ import annotations
 
 import json
+import re
 
 from ..base import BaseWrapper, Finding, SEV_INFO
 from ..utils import hostname
+
+
+def _system_resolver() -> str | None:
+    """First nameserver from /etc/resolv.conf (works for both real + Docker DNS)."""
+    try:
+        with open("/etc/resolv.conf") as fh:
+            for line in fh:
+                m = re.match(r"\s*nameserver\s+(\S+)", line)
+                if m:
+                    return m.group(1)
+    except OSError:
+        pass
+    return None
 
 
 class DnsxWrapper(BaseWrapper):
@@ -17,7 +31,11 @@ class DnsxWrapper(BaseWrapper):
 
     def build_command(self, target: str) -> list[str]:
         # host is fed on stdin; emit JSON with the resolved records
-        return [self.TOOL_BIN, "-json", "-silent", "-a", "-aaaa", "-cname", "-resp"]
+        cmd = [self.TOOL_BIN, "-json", "-silent", "-a", "-aaaa", "-cname", "-resp"]
+        resolver = self.options.get("resolver") or _system_resolver()
+        if resolver:
+            cmd += ["-r", resolver]
+        return cmd
 
     def stdin_for(self, target: str) -> str:
         return hostname(target) + "\n"

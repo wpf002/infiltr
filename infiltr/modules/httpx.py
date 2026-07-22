@@ -5,7 +5,8 @@ import json
 import shutil
 
 from ..base import BaseWrapper, Finding, SEV_INFO, SEV_LOW, SEV_MEDIUM
-from ..utils import base_url
+from ..utils import host_port, base_url
+from urllib.parse import urlparse
 
 # Kali ships the ProjectDiscovery binary as "httpx-toolkit"; upstream names it "httpx".
 _HTTPX_BINS = ("httpx-toolkit", "httpx")
@@ -38,7 +39,12 @@ class HttpxWrapper(BaseWrapper):
         ]
 
     def stdin_for(self, target: str) -> str:
-        return base_url(target) + "\n"
+        # httpx wants host:port on stdin (a bare hostname or a scheme'd URL both
+        # fail on v1.9.x), so always supply an explicit port from the scheme.
+        host, port = host_port(target)
+        if not port:
+            port = 443 if urlparse(base_url(target)).scheme == "https" else 80
+        return f"{host}:{port}\n"
 
     def parse_output(self, stdout: str, stderr: str, returncode: int) -> list[Finding]:
         findings: list[Finding] = []

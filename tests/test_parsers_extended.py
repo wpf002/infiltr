@@ -34,7 +34,10 @@ def test_httpx_parser():
 
 
 def test_httpx_stdin():
-    assert HttpxWrapper().stdin_for("localhost:8080").strip() == "http://localhost:8080"
+    # httpx wants host:port (not a scheme'd URL); default port derived from scheme
+    assert HttpxWrapper().stdin_for("localhost:8080").strip() == "localhost:8080"
+    assert HttpxWrapper().stdin_for("http://dvwa").strip() == "dvwa:80"
+    assert HttpxWrapper().stdin_for("https://x.com").strip() == "x.com:443"
 
 
 def test_subfinder_parser():

@@ -85,7 +85,7 @@ MODULES: dict[str, dict[str, Any]] = {
         "timeout": 600,
     },
     # --- extended toolchain ---
-    "nuclei": {"severity": "low,medium,high,critical", "rate_limit": 150, "timeout": 900},
+    "nuclei": {"severity": "info,low,medium,high,critical", "rate_limit": 150, "timeout": 900},
     "httpx": {"timeout": 180},
     "subfinder": {"timeout": 300},
     "dnsx": {"timeout": 120},
