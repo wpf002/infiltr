@@ -52,11 +52,21 @@ def print_banner(target: str, modules: list[str], enable: bool):
     print(f"  {c('modules', 'dim', enable)} {', '.join(modules)}\n")
 
 
-def cmd_list(enable: bool) -> int:
+def cmd_list(enable: bool, verbose: bool = False) -> int:
+    from infiltr.engine import invalid_modules
     print(c("\n  Registered modules\n", "bold", enable))
     for m in module_status():
         badge = c("installed", "green", enable) if m["installed"] else c("missing", "red", enable)
-        print(f"  {m['name']:<14} {c(m['category'], 'dim', enable):<10} [{badge}]  {c(m['description'], 'dim', enable)}")
+        ver = c(f"v{m.get('version','?')}", "dim", enable)
+        print(f"  {m['name']:<14} {ver:<12} {c(m['category'], 'dim', enable):<8} [{badge}]  {c(m['description'], 'dim', enable)}")
+        if verbose and m.get("options_schema"):
+            for opt, spec in m["options_schema"].items():
+                print(f"      {c('·', 'dim', enable)} {opt} ({spec.get('type','?')}, default={spec.get('default')}) — {spec.get('help','')}")
+    invalid = invalid_modules()
+    if invalid:
+        print(c("\n  Invalid / skipped wrappers:", "yellow", enable))
+        for name, errs in invalid.items():
+            print(f"    {c(name, 'red', enable)}: {'; '.join(errs)}")
     print()
     return 0
 
@@ -113,6 +123,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--skip-missing", action="store_true", help="skip uninstalled tools")
     parser.add_argument("--workers", "-w", type=int, default=4, help="concurrent modules")
     parser.add_argument("--list", action="store_true", help="list modules and exit")
+    parser.add_argument("--list-modules", action="store_true", help="list modules with full manifest (version, options)")
     parser.add_argument("--history", action="store_true", help="show recent scans and exit")
     parser.add_argument("--scan", type=int, metavar="ID", help="show a stored scan by id")
     parser.add_argument("--limit", type=int, default=50, help="history limit")
@@ -123,8 +134,8 @@ def main(argv: list[str] | None = None) -> int:
 
     color = sys.stdout.isatty() and not args.no_color
 
-    if args.list:
-        return cmd_list(color)
+    if args.list or args.list_modules:
+        return cmd_list(color, verbose=args.list_modules)
     if args.history:
         return cmd_history(color, args.limit)
     if args.scan is not None:

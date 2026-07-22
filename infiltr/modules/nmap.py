@@ -12,6 +12,12 @@ class NmapWrapper(BaseWrapper):
     CATEGORY = "recon"
     TOOL_BIN = "nmap"
     DESCRIPTION = "Port scan + service/version detection"
+    VERSION = "1.1"
+    OPTIONS_SCHEMA = {
+        "ports": {"type": "string", "default": "top1000", "help": "'top1000' | range | csv"},
+        "scripts": {"type": "string", "default": "default", "help": "'default' | 'vuln' | script name"},
+        "flags": {"type": "list", "default": ["-sV", "-T4", "-Pn"], "help": "raw nmap flags"},
+    }
     DEFAULT_TIMEOUT = 600
 
     def build_command(self, target: str) -> list[str]:

@@ -85,10 +85,42 @@ class BaseWrapper:
     CATEGORY: str = "misc"          # recon | web | auth | misc
     TOOL_BIN: str = ""              # binary checked with shutil.which
     DESCRIPTION: str = ""
+    VERSION: str = "1.0"
+    OPTIONS_SCHEMA: dict[str, Any] = {}   # {option: {"type","default","help"}}
     DEFAULT_TIMEOUT: int = 300
 
     def __init__(self, options: dict[str, Any] | None = None):
         self.options = options or {}
+
+    # ---- manifest / validation ---------------------------------------
+    @classmethod
+    def manifest(cls) -> dict[str, Any]:
+        """Formal module descriptor used by the registry, CLI, and API."""
+        return {
+            "name": cls.MODULE_NAME,
+            "category": cls.CATEGORY,
+            "tool": cls.TOOL_BIN,
+            "version": cls.VERSION,
+            "description": cls.DESCRIPTION,
+            "options_schema": cls.OPTIONS_SCHEMA,
+            "installed": cls.is_installed(),
+        }
+
+    @classmethod
+    def validate(cls) -> list[str]:
+        """Return a list of interface violations ([] means the wrapper is valid)."""
+        errors: list[str] = []
+        if not cls.MODULE_NAME or cls.MODULE_NAME == "base":
+            errors.append("MODULE_NAME must be set to a unique value")
+        if cls.CATEGORY not in {"recon", "web", "auth", "misc"}:
+            errors.append(f"CATEGORY '{cls.CATEGORY}' not in recon|web|auth|misc")
+        if not cls.TOOL_BIN:
+            errors.append("TOOL_BIN must name the tool binary")
+        if cls.build_command is BaseWrapper.build_command:
+            errors.append("build_command() must be overridden")
+        if cls.parse_output is BaseWrapper.parse_output:
+            errors.append("parse_output() must be overridden")
+        return errors
 
     # ---- discovery / availability -------------------------------------
     @classmethod

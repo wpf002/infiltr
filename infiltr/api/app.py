@@ -56,6 +56,20 @@ def modules() -> list[dict[str, Any]]:
     return module_status()
 
 
+@app.get("/modules/invalid")
+def modules_invalid() -> dict[str, Any]:
+    from ..engine import invalid_modules
+    return invalid_modules()
+
+
+@app.post("/modules/reload")
+def modules_reload(user=Depends(require_role("admin") if AUTH_ENABLED else current_user)) -> dict[str, Any]:
+    """Hot-reload the wrapper registry without restarting the server."""
+    from ..engine import reload as reload_modules, invalid_modules
+    reg = reload_modules()
+    return {"reloaded": sorted(reg.keys()), "invalid": invalid_modules()}
+
+
 @app.post("/scan", response_model=ScanStarted)
 async def start_scan(req: ScanRequest, user=Depends(current_user), _rl=Depends(rate_limit)) -> ScanStarted:
     from ..profiles import resolve_modules, resolve_options
