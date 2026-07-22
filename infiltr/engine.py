@@ -118,8 +118,14 @@ class Engine:
         self,
         target: str,
         on_result: Callable[[ScanResult], None] | None = None,
+        on_start: Callable[[str], None] | None = None,
     ) -> list[ScanResult]:
-        """Execute selected modules concurrently, returning results in stable order."""
+        """Execute selected modules concurrently, returning results in stable order.
+
+        ``on_start(name)`` fires (from the worker thread) the moment a module
+        actually begins running — i.e. when it leaves the queue and gets a worker
+        slot — so callers can distinguish waiting vs running vs done.
+        """
         wrappers = {}
         for name in self.selected:
             cls = self.registry[name]
@@ -127,9 +133,17 @@ class Engine:
                 continue
             wrappers[name] = self._instantiate(name)
 
+        def _run_one(name: str, wrapper) -> ScanResult:
+            if on_start:
+                try:
+                    on_start(name)
+                except Exception:  # noqa: BLE001
+                    pass
+            return wrapper.run(target)
+
         results: dict[str, ScanResult] = {}
         with ThreadPoolExecutor(max_workers=self.max_workers) as pool:
-            futures = {pool.submit(w.run, target): name for name, w in wrappers.items()}
+            futures = {pool.submit(_run_one, name, w): name for name, w in wrappers.items()}
             for fut in as_completed(futures):
                 name = futures[fut]
                 try:

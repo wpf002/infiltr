@@ -73,6 +73,12 @@ class ScanManager:
     async def _run(self, job: Job, engine: Engine, target: str, loop: asyncio.AbstractEventLoop, key: str = "anon") -> None:
         t0 = time.monotonic()
 
+        def on_start(name):  # worker thread — module just got a slot
+            loop.call_soon_threadsafe(
+                self._broadcast, job,
+                {"type": "module_start", "scan_id": job.scan_id, "module": name},
+            )
+
         def on_result(res):  # runs in an engine worker thread
             try:
                 store.record_module_result(job.scan_id, res)
@@ -89,7 +95,7 @@ class ScanManager:
             loop.call_soon_threadsafe(self._broadcast, job, evt)
 
         try:
-            await asyncio.to_thread(engine.run, target, on_result)
+            await asyncio.to_thread(engine.run, target, on_result, on_start)
             status = "completed"
         except Exception as exc:  # noqa: BLE001
             status = "error"

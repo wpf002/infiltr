@@ -92,6 +92,9 @@ const LiveApi = {
 
     await new Promise((resolve) => {
       const es = new EventSource(`${API_BASE}/scan/${scan_id}/events`);
+      es.addEventListener("module_start", (e) => {
+        cb.onModuleStart(JSON.parse(e.data).module);
+      });
       es.addEventListener("module", (e) => {
         const evt = JSON.parse(e.data);
         cb.onModule({ ...evt.result, phase: "done" });
@@ -133,7 +136,7 @@ const SimApi = {
     const names = modules && modules.length ? modules : PROFILE_MODULES[profile] || PROFILE_MODULES.full;
     cb.onStart(names, null);
     for (const name of names) {
-      cb.onModule({ module: name, phase: "running" });
+      cb.onModuleStart(name);
       await sleep(300 + Math.random() * 700);
       const meta = MODULE_META.find((m) => m.name === name);
       const findings = (SIM_FINDINGS[name] || []).filter(() => Math.random() > 0.3);
@@ -178,18 +181,28 @@ function statusBadge(status, phase) {
 }
 const sevPill = (s) => `<span class="sev-pill ${s}">${s}</span>`;
 
+function liveElapsed(r) {
+  if (!r.startedAt) return "…";
+  return ((Date.now() - r.startedAt) / 1000).toFixed(1) + "s";
+}
+
 function renderRow(r) {
+  const running = r.phase === "running";
   const findings = r.findings ? r.findings.length : 0;
   const newCount = (r.findings || []).filter((f) => f.is_new).length;
   const newTag = newCount ? ` <span class="new-tag">◆ ${newCount} NEW</span>` : "";
+  const timeCell = running ? liveElapsed(r) : r.duration ? r.duration + "s" : "—";
+  const summaryCell = running
+    ? `<div class="mod-bar" title="running"><div class="mod-bar-fill"></div></div>`
+    : r.summary || "";
   return `<tr data-module="${r.module}">
     <td>${statusBadge(r.status, r.phase)}</td>
     <td class="mono">${r.module}${newTag}</td>
     <td>${r.category || ""}</td>
     <td>${sevPill(r.severity || "info")}</td>
-    <td class="mono">${r.phase === "running" ? "…" : findings}</td>
-    <td class="mono">${r.duration ? r.duration + "s" : "—"}</td>
-    <td>${r.summary || (r.phase === "running" ? "scanning…" : "")}</td>
+    <td class="mono">${running ? "…" : findings}</td>
+    <td class="mono">${timeCell}</td>
+    <td>${summaryCell}</td>
   </tr>`;
 }
 
@@ -258,6 +271,12 @@ async function runScan() {
   state.order = [];
   toggleRunning(true);
 
+  // live-elapsed ticker: re-render running rows so their timers/bars animate
+  clearInterval(state.tick);
+  state.tick = setInterval(() => {
+    if (state.order.some((n) => state.results[n].phase === "running")) renderResults();
+  }, 400);
+
   try {
     await Api.runScan(target, { profile }, {
       onStart: (selected) => {
@@ -267,6 +286,11 @@ async function runScan() {
         });
         renderResults();
         updateStats();
+      },
+      onModuleStart: (name) => {
+        const prev = state.results[name] || {};
+        state.results[name] = { ...prev, module: name, phase: "running", status: "RUN", startedAt: Date.now() };
+        renderResults();
       },
       onModule: (evt) => {
         state.results[evt.module] = { ...(state.results[evt.module] || {}), ...evt };
@@ -284,6 +308,8 @@ async function runScan() {
     alert(`Scan error: ${err.message}`);
   } finally {
     state.scanning = false;
+    clearInterval(state.tick);
+    renderResults();
     toggleRunning(false);
   }
 }

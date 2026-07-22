@@ -51,7 +51,7 @@ class ScanRequest(BaseModel):
     profile: Optional[str] = None
     options: Optional[dict[str, Any]] = None
     skip_missing: bool = False
-    workers: int = 4
+    workers: int = 6
 
 
 class ScanStarted(BaseModel):
