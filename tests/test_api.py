@@ -103,5 +103,41 @@ def test_profiles_resolution(server):
     assert {r["module"] for r in scan["results"]} == {"nmap", "whatweb"}
 
 
+def test_profiles_crud(server):
+    # built-ins are present
+    profs = httpx.get(f"{server}/profiles").json()
+    names = {p["name"] for p in profs}
+    assert {"full", "quick", "web-audit", "auth-test"}.issubset(names)
+
+    # create
+    created = httpx.post(f"{server}/profiles", json={
+        "name": "recon-lite", "modules": ["nmap"], "description": "just nmap",
+    }).json()
+    pid = created["id"]
+    assert pid is not None
+
+    # appears in list
+    assert any(p.get("id") == pid for p in httpx.get(f"{server}/profiles").json())
+
+    # update
+    upd = httpx.put(f"{server}/profiles/{pid}", json={
+        "name": "recon-lite", "modules": ["nmap", "whatweb"], "description": "nmap+whatweb",
+    }).json()
+    assert set(upd["modules"]) == {"nmap", "whatweb"}
+
+    # a scan using the profile resolves to its modules
+    scan_id = httpx.post(f"{server}/scan", json={"target": "http://localhost:8080", "profile": "recon-lite"}).json()["scan_id"]
+    for _ in range(100):
+        scan = httpx.get(f"{server}/scan/{scan_id}").json()
+        if scan["status"] == "completed":
+            break
+        time.sleep(0.1)
+    assert {r["module"] for r in scan["results"]} == {"nmap", "whatweb"}
+
+    # delete
+    assert httpx.delete(f"{server}/profiles/{pid}").status_code == 200
+    assert httpx.delete(f"{server}/profiles/{pid}").status_code == 404
+
+
 def test_unknown_scan_404(server):
     assert httpx.get(f"{server}/scan/99999").status_code == 404

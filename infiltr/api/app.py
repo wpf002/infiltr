@@ -56,21 +56,64 @@ def modules() -> list[dict[str, Any]]:
 
 @app.post("/scan", response_model=ScanStarted)
 async def start_scan(req: ScanRequest) -> ScanStarted:
-    from ..profiles import resolve_modules
+    from ..profiles import resolve_modules, resolve_options
     modules = resolve_modules(req.profile, req.modules)
     registry = discover()
     selected = [m for m in modules if m in registry] if modules else list(registry)
     if not selected:
         raise HTTPException(400, "no valid modules selected")
+    # merge profile options under any explicit request options
+    options = {**resolve_options(req.profile), **(req.options or {})}
     scan_id = await manager.start_scan(
         target=req.target,
         modules=selected,
-        options=req.options,
+        options=options,
         profile=req.profile,
         workers=req.workers,
         skip_missing=req.skip_missing,
     )
     return ScanStarted(scan_id=scan_id, target=req.target, modules=selected)
+
+
+# ---- profiles ---------------------------------------------------------
+class ProfileBody(BaseModel):
+    name: str
+    modules: list[str] = []
+    description: str = ""
+    target: Optional[str] = None
+    options: Optional[dict[str, Any]] = None
+
+
+@app.get("/profiles")
+def list_profiles() -> list[dict[str, Any]]:
+    from ..profiles import all_profiles
+    return all_profiles()
+
+
+@app.post("/profiles")
+def create_profile(body: ProfileBody) -> dict[str, Any]:
+    return store.create_profile(
+        name=body.name, modules=body.modules, description=body.description,
+        target=body.target, options=body.options,
+    )
+
+
+@app.put("/profiles/{profile_id}")
+def update_profile(profile_id: int, body: ProfileBody) -> dict[str, Any]:
+    prof = store.update_profile(
+        profile_id, name=body.name, modules=body.modules,
+        description=body.description, target=body.target, options=body.options,
+    )
+    if prof is None:
+        raise HTTPException(404, "profile not found")
+    return prof
+
+
+@app.delete("/profiles/{profile_id}")
+def delete_profile(profile_id: int) -> dict[str, Any]:
+    if not store.delete_profile(profile_id):
+        raise HTTPException(404, "profile not found")
+    return {"deleted": profile_id}
 
 
 @app.get("/scans")

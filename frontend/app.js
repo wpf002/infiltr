@@ -56,6 +56,20 @@ const LiveApi = {
     return r.json();
   },
 
+  async getProfiles() {
+    const r = await fetch(`${API_BASE}/profiles`);
+    return r.json();
+  },
+
+  async createProfile(body) {
+    const r = await fetch(`${API_BASE}/profiles`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    return r.json();
+  },
+
   async getScan(id) {
     const r = await fetch(`${API_BASE}/scan/${id}`);
     if (!r.ok) return null;
@@ -109,6 +123,12 @@ const SimApi = {
   async getModules() { return MODULE_META.map((m) => ({ ...m, installed: true })); },
   async getScans() { return []; },
   async getScan() { return null; },
+  async getProfiles() {
+    return Object.entries(PROFILE_MODULES).map(([name, mods]) => ({
+      id: null, name, builtin: true, modules: name === "full" ? [] : mods, description: "",
+    }));
+  },
+  async createProfile(body) { PROFILE_MODULES[body.name] = body.modules; return { ...body, id: null }; },
   async runScan(target, { modules, profile }, cb) {
     const names = modules && modules.length ? modules : PROFILE_MODULES[profile] || PROFILE_MODULES.full;
     cb.onStart(names, null);
@@ -293,6 +313,36 @@ function openReport() {
 }
 
 // ---------------------------------------------------------------------
+// Profiles
+// ---------------------------------------------------------------------
+async function loadProfiles() {
+  const profiles = await Api.getProfiles();
+  const sel = $("#profile");
+  const current = sel.value;
+  sel.innerHTML = profiles
+    .map((p) => {
+      const label = p.description ? `${p.name} — ${p.description}` : p.name;
+      const tag = p.builtin ? "" : " ★";
+      return `<option value="${escapeHtml(p.name)}">${escapeHtml(label)}${tag}</option>`;
+    })
+    .join("");
+  // remember module sets so the sim path can resolve them
+  profiles.forEach((p) => { if (p.modules && p.modules.length) PROFILE_MODULES[p.name] = p.modules; });
+  if ([...sel.options].some((o) => o.value === current)) sel.value = current;
+}
+
+async function saveProfile() {
+  const profile = $("#profile").value;
+  const modules = profile === "full" ? MODULE_META.map((m) => m.name) : (PROFILE_MODULES[profile] || []);
+  const name = prompt("New profile name:", `${profile}-copy`);
+  if (!name) return;
+  const description = prompt("Description (optional):", "") || "";
+  await Api.createProfile({ name, modules, description });
+  await loadProfiles();
+  $("#profile").value = name;
+}
+
+// ---------------------------------------------------------------------
 // History
 // ---------------------------------------------------------------------
 async function loadHistory() {
@@ -365,9 +415,11 @@ async function init() {
   const mods = await Api.getModules();
   renderSidebarModules(mods);
   renderModulesGrid(mods);
+  await loadProfiles();
   if (state.live) loadHistory();
 
   $("#run-btn").addEventListener("click", runScan);
+  $("#save-profile-btn").addEventListener("click", saveProfile);
   $("#export-btn").addEventListener("click", exportJson);
   $("#report-btn").addEventListener("click", openReport);
   $("#drawer-close").addEventListener("click", closeDrawer);

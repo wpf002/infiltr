@@ -99,6 +99,32 @@ class ModuleResult(Base):
         return d
 
 
+class Profile(Base):
+    """A named, reusable scan configuration (user-defined; built-ins live in code)."""
+    __tablename__ = "profiles"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(64), index=True)
+    description: Mapped[str] = mapped_column(Text, default="")
+    target: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    modules: Mapped[List[str]] = mapped_column(JSON, default=list)
+    options: Mapped[Dict[str, Any]] = mapped_column(JSON, default=dict)
+    user_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "name": self.name,
+            "description": self.description,
+            "target": self.target,
+            "modules": self.modules or [],
+            "options": self.options or {},
+            "builtin": False,
+            "user_id": self.user_id,
+        }
+
+
 class Finding(Base):
     __tablename__ = "findings"
 

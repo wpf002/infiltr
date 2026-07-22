@@ -133,8 +133,14 @@ def main(argv: list[str] | None = None) -> int:
     if not args.target:
         parser.error("target is required (or use --list / --history / --scan)")
 
-    modules = [m.strip() for m in args.modules.split(",")] if args.modules else None
-    engine = Engine(modules=modules, max_workers=args.workers, skip_missing=args.skip_missing)
+    explicit = [m.strip() for m in args.modules.split(",")] if args.modules else None
+    from infiltr import profiles
+    modules = profiles.resolve_modules(args.profile, explicit)
+    options = profiles.resolve_options(args.profile) if args.profile else None
+    engine = Engine(
+        modules=modules, options=options,
+        max_workers=args.workers, skip_missing=args.skip_missing,
+    )
 
     if engine.unknown:
         print(c(f"  unknown modules ignored: {', '.join(engine.unknown)}", "yellow", color))

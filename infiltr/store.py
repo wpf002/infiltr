@@ -8,7 +8,7 @@ from sqlalchemy import select, func, desc
 
 from .base import ScanResult, severity_rank, SEVERITY_ORDER
 from .db import session_scope, init_db
-from .models import ScanRun, ModuleResult, Finding
+from .models import ScanRun, ModuleResult, Finding, Profile
 
 
 def save_scan(
@@ -199,6 +199,82 @@ def severity_histogram(scan_id: int) -> dict[str, int]:
         for sev, count in rows:
             hist[sev] = count
     return hist
+
+
+# ---- profiles ---------------------------------------------------------
+def list_profiles(user_id: int | None = None) -> list[dict[str, Any]]:
+    init_db()
+    with session_scope() as s:
+        stmt = select(Profile).order_by(Profile.id)
+        if user_id is not None:
+            stmt = stmt.where(Profile.user_id == user_id)
+        return [p.to_dict() for p in s.scalars(stmt).all()]
+
+
+def get_profile(profile_id: int, user_id: int | None = None) -> dict[str, Any] | None:
+    init_db()
+    with session_scope() as s:
+        p = s.get(Profile, profile_id)
+        if p is None or (user_id is not None and p.user_id != user_id):
+            return None
+        return p.to_dict()
+
+
+def get_profile_by_name(name: str, user_id: int | None = None) -> dict[str, Any] | None:
+    init_db()
+    with session_scope() as s:
+        stmt = select(Profile).where(Profile.name == name)
+        if user_id is not None:
+            stmt = stmt.where(Profile.user_id == user_id)
+        p = s.scalars(stmt).first()
+        return p.to_dict() if p else None
+
+
+def create_profile(
+    name: str,
+    modules: list[str],
+    description: str = "",
+    target: str | None = None,
+    options: dict | None = None,
+    user_id: int | None = None,
+) -> dict[str, Any]:
+    init_db()
+    with session_scope() as s:
+        p = Profile(
+            name=name,
+            description=description,
+            target=target,
+            modules=modules or [],
+            options=options or {},
+            user_id=user_id,
+        )
+        s.add(p)
+        s.flush()
+        return p.to_dict()
+
+
+def update_profile(profile_id: int, user_id: int | None = None, **fields) -> dict[str, Any] | None:
+    init_db()
+    allowed = {"name", "description", "target", "modules", "options"}
+    with session_scope() as s:
+        p = s.get(Profile, profile_id)
+        if p is None or (user_id is not None and p.user_id != user_id):
+            return None
+        for k, v in fields.items():
+            if k in allowed and v is not None:
+                setattr(p, k, v)
+        s.flush()
+        return p.to_dict()
+
+
+def delete_profile(profile_id: int, user_id: int | None = None) -> bool:
+    init_db()
+    with session_scope() as s:
+        p = s.get(Profile, profile_id)
+        if p is None or (user_id is not None and p.user_id != user_id):
+            return False
+        s.delete(p)
+        return True
 
 
 def previous_scan_for_target(target: str, before_id: int, user_id: int | None = None):
