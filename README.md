@@ -131,3 +131,21 @@ export INFILTR_SECRET_KEY="$(python3 -c 'import secrets;print(secrets.token_urls
 - API keys: `POST /auth/api-keys` → use via `X-API-Key` header
 - Roles: `admin` > `operator` > `viewer`; admin endpoints under `/admin/*` (users, audit log)
 - All scans and profiles are scoped to the authenticated user; per-user rate limiting applies
+
+## Production & hardening
+
+```bash
+export INFILTR_SECRET_KEY="$(python3 -c 'import secrets;print(secrets.token_urlsafe(48))')"
+export INFILTR_ALLOWLIST="*.corp.local,10.0.0.0/8"   # scope guard (globs / CIDRs)
+docker compose -f docker-compose.prod.yml up -d       # API + console on :8000
+```
+
+- **No shell execution** — every tool runs from an argv list; targets are sanitized
+  (argument-injection and shell metacharacters refused).
+- **Scope guard** — `INFILTR_ALLOWLIST` / `INFILTR_BLOCKLIST` (hosts, `*.globs`, CIDRs).
+  Cloud metadata endpoints (169.254.169.254) are blocked by default.
+- **Concurrency** — `INFILTR_MAX_CONCURRENT` caps simultaneous scans per user.
+- **Audit log** — append-only record of every scan and user action (`GET /admin/audit`).
+- **TLS** — set `INFILTR_TLS_CERT` / `INFILTR_TLS_KEY` for HTTPS.
+- **CI** — GitHub Actions runs lint, compile, unit tests, and an nmap integration
+  test against a DVWA service container.

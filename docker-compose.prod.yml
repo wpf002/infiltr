@@ -1,0 +1,36 @@
+# Production deploy: `docker compose -f docker-compose.prod.yml up -d`
+# Serves the Infiltr API + console on :8000. Set a real INFILTR_SECRET_KEY.
+services:
+  infiltr:
+    build: .
+    image: infiltr:latest
+    container_name: infiltr
+    ports:
+      - "8000:8000"
+    environment:
+      INFILTR_AUTH: "1"
+      INFILTR_SCHEDULER: "1"
+      INFILTR_SECRET_KEY: "${INFILTR_SECRET_KEY:-change-me-in-production}"
+      INFILTR_MAX_CONCURRENT: "3"
+      # Scope guard — restrict what can be scanned. Comma-separated hosts / globs / CIDRs.
+      INFILTR_ALLOWLIST: "${INFILTR_ALLOWLIST:-}"
+      INFILTR_BLOCKLIST: "${INFILTR_BLOCKLIST:-}"
+      DATABASE_URL: "sqlite:////data/infiltr.db"
+    volumes:
+      - infiltr-data:/data
+    restart: unless-stopped
+    networks: [infiltr]
+
+  # Optional in-network lab target (remove for real deployments)
+  dvwa:
+    image: vulnerables/web-dvwa:latest
+    container_name: infiltr-dvwa
+    restart: unless-stopped
+    networks: [infiltr]
+
+volumes:
+  infiltr-data:
+
+networks:
+  infiltr:
+    driver: bridge

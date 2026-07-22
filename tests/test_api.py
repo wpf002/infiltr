@@ -167,5 +167,14 @@ def test_schedule_crud_and_run_now(server):
     assert httpx.delete(f"{server}/schedules/{sid}").status_code == 200
 
 
+def test_scope_rejection(server):
+    # blocklisted cloud metadata endpoint is refused
+    r = httpx.post(f"{server}/scan", json={"target": "http://169.254.169.254/", "modules": ["nmap"]})
+    assert r.status_code == 403
+    # argument-injection target refused
+    r2 = httpx.post(f"{server}/scan", json={"target": "-oG/tmp/x", "modules": ["nmap"]})
+    assert r2.status_code == 403
+
+
 def test_unknown_scan_404(server):
     assert httpx.get(f"{server}/scan/99999").status_code == 404

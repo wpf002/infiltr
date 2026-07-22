@@ -144,6 +144,13 @@ def main(argv: list[str] | None = None) -> int:
     if not args.target:
         parser.error("target is required (or use --list / --history / --scan)")
 
+    from infiltr import safety
+    try:
+        args.target = safety.check_scope(args.target)
+    except safety.ScopeError as exc:
+        print(c(f"\n  [!] target rejected: {exc}\n", "red", color))
+        return 2
+
     explicit = [m.strip() for m in args.modules.split(",")] if args.modules else None
     from infiltr import profiles
     modules = profiles.resolve_modules(args.profile, explicit)

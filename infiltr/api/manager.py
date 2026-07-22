@@ -6,11 +6,20 @@ lands, and fans out progress events to any number of SSE subscribers.
 from __future__ import annotations
 
 import asyncio
+import os
 import time
+from collections import defaultdict
 from typing import Any
 
 from .. import store
+from .. import safety
 from ..engine import Engine
+
+MAX_CONCURRENT = int(os.environ.get("INFILTR_MAX_CONCURRENT", "3"))
+
+
+class ConcurrencyError(RuntimeError):
+    """Too many concurrent scans for this user."""
 
 
 class Job:
@@ -28,6 +37,7 @@ class ScanManager:
     def __init__(self) -> None:
         self.jobs: dict[int, Job] = {}
         self._tasks: set[asyncio.Task] = set()
+        self._active: dict[str, int] = defaultdict(int)
 
     # ---- lifecycle ----------------------------------------------------
     async def start_scan(
@@ -40,19 +50,27 @@ class ScanManager:
         workers: int = 4,
         skip_missing: bool = False,
     ) -> int:
+        # hardening: sanitize + enforce scope before anything is created
+        target = safety.check_scope(target)
+
+        key = str(user_id) if user_id is not None else "anon"
+        if self._active[key] >= MAX_CONCURRENT:
+            raise ConcurrencyError(f"max {MAX_CONCURRENT} concurrent scans reached")
+
         engine = Engine(modules=modules, options=options, max_workers=workers, skip_missing=skip_missing)
         selected = engine.selected
         scan_id = await asyncio.to_thread(store.start_scan_run, target, selected, profile, user_id)
         job = Job(scan_id, len(selected))
         self.jobs[scan_id] = job
+        self._active[key] += 1
         loop = asyncio.get_running_loop()
         # keep a strong reference so the background task isn't garbage-collected
-        task = asyncio.create_task(self._run(job, engine, target, loop))
+        task = asyncio.create_task(self._run(job, engine, target, loop, key))
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
         return scan_id
 
-    async def _run(self, job: Job, engine: Engine, target: str, loop: asyncio.AbstractEventLoop) -> None:
+    async def _run(self, job: Job, engine: Engine, target: str, loop: asyncio.AbstractEventLoop, key: str = "anon") -> None:
         t0 = time.monotonic()
 
         def on_result(res):  # runs in an engine worker thread
@@ -84,6 +102,7 @@ class ScanManager:
             delta = await asyncio.to_thread(store.apply_delta, job.scan_id)
         except Exception:  # noqa: BLE001
             pass
+        self._active[key] = max(0, self._active[key] - 1)
         job.status = status
         self._broadcast(job, {"type": "done", "scan_id": job.scan_id, "status": status, "delta": delta})
         job.done.set()

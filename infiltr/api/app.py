@@ -96,15 +96,22 @@ async def start_scan(req: ScanRequest, user=Depends(current_user), _rl=Depends(r
         raise HTTPException(400, "no valid modules selected")
     # merge profile options under any explicit request options
     options = {**resolve_options(req.profile, user_id=uid), **(req.options or {})}
-    scan_id = await manager.start_scan(
-        target=req.target,
-        modules=selected,
-        options=options,
-        profile=req.profile,
-        user_id=uid,
-        workers=req.workers,
-        skip_missing=req.skip_missing,
-    )
+    from ..safety import ScopeError
+    from .manager import ConcurrencyError
+    try:
+        scan_id = await manager.start_scan(
+            target=req.target,
+            modules=selected,
+            options=options,
+            profile=req.profile,
+            user_id=uid,
+            workers=req.workers,
+            skip_missing=req.skip_missing,
+        )
+    except ScopeError as exc:
+        raise HTTPException(403, f"target rejected: {exc}")
+    except ConcurrencyError as exc:
+        raise HTTPException(429, str(exc))
     auth_service.audit("scan.start", actor=(user or {}).get("email", "anon"),
                        user_id=uid, detail=",".join(selected), target=req.target)
     return ScanStarted(scan_id=scan_id, target=req.target, modules=selected)
