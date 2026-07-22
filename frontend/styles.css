@@ -1,21 +1,22 @@
-/* Infiltr console — dark security-tool aesthetic */
+/* Infiltr console — red-team / Assassin's Creed attack aesthetic (red · black · grey · white) */
 :root {
-  --bg: #0a0d12;
-  --bg-1: #10151d;
-  --bg-2: #161d27;
-  --bg-3: #1d2632;
-  --line: #232e3c;
-  --line-2: #2d3a4b;
-  --txt: #e6edf3;
-  --txt-dim: #8b98a9;
-  --txt-mute: #5a6674;
-  --accent: #3ddc97;
-  --accent-2: #2bb3ff;
-  --crit: #b366ff;
-  --high: #ff5b6a;
-  --med: #ffb020;
-  --low: #38bdf8;
-  --info: #6b7684;
+  --bg: #08080a;
+  --bg-1: #0e0e11;
+  --bg-2: #15151a;
+  --bg-3: #1e1e24;
+  --line: #2a2a31;
+  --line-2: #3a3a43;
+  --txt: #f4f4f6;
+  --txt-dim: #9a9aa4;
+  --txt-mute: #5f5f69;
+  --accent: #e01e2b;          /* blood red — primary action */
+  --accent-2: #ff3b41;        /* ember red — highlights / gradients */
+  --accent-deep: #7a0d14;     /* dried-blood red for gradients */
+  --crit: #ff1e2d;            /* crimson */
+  --high: #ff5c33;            /* ember */
+  --med: #e0a82e;            /* AC gold */
+  --low: #9aa0aa;            /* steel grey */
+  --info: #5c5c65;           /* muted */
   --radius: 10px;
   --mono: "SF Mono", "JetBrains Mono", "Fira Code", ui-monospace, Menlo, monospace;
   --sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -25,7 +26,11 @@
 html, body { height: 100%; }
 body {
   font-family: var(--sans);
-  background: var(--bg);
+  background:
+    radial-gradient(1200px 380px at 18% -12%, rgba(224, 30, 43, .10), transparent 60%),
+    radial-gradient(900px 300px at 100% 0%, rgba(224, 30, 43, .05), transparent 55%),
+    var(--bg);
+  background-attachment: fixed;
   color: var(--txt);
   font-size: 14px;
   -webkit-font-smoothing: antialiased;
@@ -44,9 +49,11 @@ body {
 .brand { display: flex; align-items: center; gap: 11px; padding: 4px 6px; }
 .brand-mark {
   width: 34px; height: 34px; display: grid; place-items: center;
-  background: linear-gradient(135deg, var(--accent), var(--accent-2));
-  color: #04140d; border-radius: 9px; font-size: 20px; font-weight: 700;
+  background: linear-gradient(135deg, var(--accent-2), var(--accent-deep));
+  color: #fff; border-radius: 9px; font-size: 20px; font-weight: 700;
+  box-shadow: 0 0 14px rgba(224, 30, 43, .45);
 }
+.brand-name { color: #fff; }
 .brand-text { display: flex; flex-direction: column; line-height: 1.15; }
 .brand-name { font-weight: 700; letter-spacing: 2px; font-size: 15px; }
 .brand-sub { font-size: 11px; color: var(--txt-mute); letter-spacing: 1px; }
@@ -86,7 +93,7 @@ body {
 }
 .dot { width: 8px; height: 8px; border-radius: 50%; }
 .dot-idle { background: var(--med); }
-.dot-live { background: var(--accent); box-shadow: 0 0 8px var(--accent); }
+.dot-live { background: var(--accent-2); box-shadow: 0 0 10px var(--accent); }
 .dot-off  { background: var(--high); }
 
 /* ---- Main ---- */
@@ -119,8 +126,8 @@ body {
   font-family: var(--sans); font-size: 13px; font-weight: 600; cursor: pointer;
   display: inline-flex; align-items: center; gap: 7px; transition: .15s; white-space: nowrap;
 }
-.btn-primary { background: var(--accent); color: #04140d; }
-.btn-primary:hover { filter: brightness(1.08); }
+.btn-primary { background: var(--accent); color: #fff; box-shadow: 0 0 12px rgba(224, 30, 43, .35); }
+.btn-primary:hover { filter: brightness(1.12); }
 .btn-primary:disabled { opacity: .5; cursor: not-allowed; }
 .btn-ghost { background: var(--bg-2); color: var(--txt-dim); border-color: var(--line-2); }
 .btn-ghost:hover:not(:disabled) { color: var(--txt); border-color: var(--txt-mute); }
@@ -168,9 +175,9 @@ body {
 .mono { font-family: var(--mono); }
 
 .badge { font-family: var(--mono); font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 5px; display: inline-block; }
-.badge-pass { background: color-mix(in srgb, var(--accent) 15%, transparent); color: var(--accent); }
-.badge-error { background: color-mix(in srgb, var(--high) 15%, transparent); color: var(--high); }
-.badge-run { background: color-mix(in srgb, var(--accent-2) 15%, transparent); color: var(--accent-2); }
+.badge-pass { background: color-mix(in srgb, var(--txt-dim) 14%, transparent); color: var(--txt); border: 1px solid var(--line-2); }
+.badge-error { background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--accent-2); border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent); }
+.badge-run { background: color-mix(in srgb, var(--accent-2) 16%, transparent); color: var(--accent-2); }
 .badge-wait { background: var(--bg-3); color: var(--txt-mute); }
 
 .sev-pill { font-family: var(--mono); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; }

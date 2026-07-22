@@ -48,7 +48,7 @@ def test_html_report_self_contained():
     assert "sqlmap" in h and "nmap" in h
     assert "ACME" in h
     # severity colors present
-    assert "#b366ff" in h  # critical
+    assert "#ff1e2d" in h  # critical (red-team palette)
 
 
 def test_html_escapes_content():
