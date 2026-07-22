@@ -8,7 +8,7 @@ from typing import Any, Optional
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -134,6 +134,25 @@ def delete_scan(scan_id: int) -> dict[str, Any]:
     if not store.delete_scan(scan_id):
         raise HTTPException(404, "scan not found")
     return {"deleted": scan_id}
+
+
+@app.get("/scan/{scan_id}/report")
+def scan_report(scan_id: int, format: str = "html", client: str = "") -> Response:
+    from ..reporting import render_html, render_markdown, render_pdf, ReportTheme, PDF_AVAILABLE
+    scan = store.get_scan(scan_id)
+    if scan is None:
+        raise HTTPException(404, "scan not found")
+    theme = ReportTheme(client=client)
+    fmt = format.lower()
+    if fmt in ("md", "markdown"):
+        return Response(render_markdown(scan, theme), media_type="text/markdown",
+                        headers={"Content-Disposition": f'inline; filename="infiltr-scan-{scan_id}.md"'})
+    if fmt == "pdf":
+        if not PDF_AVAILABLE:
+            raise HTTPException(501, "PDF generation unavailable (WeasyPrint not installed); use format=html or md")
+        return Response(render_pdf(scan, theme), media_type="application/pdf",
+                        headers={"Content-Disposition": f'attachment; filename="infiltr-scan-{scan_id}.pdf"'})
+    return Response(render_html(scan, theme), media_type="text/html")
 
 
 @app.get("/scan/{scan_id}/events")
