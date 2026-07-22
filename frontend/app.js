@@ -345,7 +345,8 @@ async function loadProfiles() {
   const current = sel.value;
   sel.innerHTML = profiles
     .map((p) => {
-      const label = p.description ? `${p.name} — ${p.description}` : p.name;
+      // name (left of the dash) uppercased for display; value stays the real name
+      const label = p.description ? `${p.name.toUpperCase()} — ${p.description}` : p.name.toUpperCase();
       const tag = p.builtin ? "" : " ★";
       return `<option value="${escapeHtml(p.name)}">${escapeHtml(label)}${tag}</option>`;
     })

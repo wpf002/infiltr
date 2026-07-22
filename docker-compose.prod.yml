@@ -24,6 +24,7 @@ services:
       # live code (the image also bakes it in; the mount lets you edit without a rebuild)
       - ./infiltr:/app/infiltr:ro
       - ./runner.py:/app/runner.py:ro
+      - ./frontend:/app/frontend:ro
     # raw sockets for masscan / full nmap (the scanner is the appliance's purpose)
     cap_add:
       - NET_RAW
