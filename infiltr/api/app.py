@@ -44,6 +44,16 @@ app.add_middleware(
 )
 
 
+@app.middleware("http")
+async def no_cache_frontend(request, call_next):
+    """Revalidate the console assets so UI changes always take (no stale JS/CSS)."""
+    response = await call_next(request)
+    path = request.url.path
+    if path == "/" or path.endswith((".html", ".js", ".css")):
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    return response
+
+
 # ---- schemas ----------------------------------------------------------
 class ScanRequest(BaseModel):
     target: str = Field(..., examples=["http://localhost:8080"])
