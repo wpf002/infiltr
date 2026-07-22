@@ -6,7 +6,7 @@ import json
 import os
 from typing import Any, Optional
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -14,6 +14,8 @@ from pydantic import BaseModel, Field
 
 from .. import store
 from ..engine import module_status, discover
+from ..auth import service as auth_service
+from ..auth.deps import current_user, require_user, require_role, rate_limit, user_id_of, AUTH_ENABLED
 from .manager import manager
 
 app = FastAPI(title="Infiltr API", version="0.12.0")
@@ -55,23 +57,27 @@ def modules() -> list[dict[str, Any]]:
 
 
 @app.post("/scan", response_model=ScanStarted)
-async def start_scan(req: ScanRequest) -> ScanStarted:
+async def start_scan(req: ScanRequest, user=Depends(current_user), _rl=Depends(rate_limit)) -> ScanStarted:
     from ..profiles import resolve_modules, resolve_options
-    modules = resolve_modules(req.profile, req.modules)
+    uid = user_id_of(user)
+    modules = resolve_modules(req.profile, req.modules, user_id=uid)
     registry = discover()
     selected = [m for m in modules if m in registry] if modules else list(registry)
     if not selected:
         raise HTTPException(400, "no valid modules selected")
     # merge profile options under any explicit request options
-    options = {**resolve_options(req.profile), **(req.options or {})}
+    options = {**resolve_options(req.profile, user_id=uid), **(req.options or {})}
     scan_id = await manager.start_scan(
         target=req.target,
         modules=selected,
         options=options,
         profile=req.profile,
+        user_id=uid,
         workers=req.workers,
         skip_missing=req.skip_missing,
     )
+    auth_service.audit("scan.start", actor=(user or {}).get("email", "anon"),
+                       user_id=uid, detail=",".join(selected), target=req.target)
     return ScanStarted(scan_id=scan_id, target=req.target, modules=selected)
 
 
@@ -85,23 +91,23 @@ class ProfileBody(BaseModel):
 
 
 @app.get("/profiles")
-def list_profiles() -> list[dict[str, Any]]:
+def list_profiles(user=Depends(current_user)) -> list[dict[str, Any]]:
     from ..profiles import all_profiles
-    return all_profiles()
+    return all_profiles(user_id=user_id_of(user))
 
 
 @app.post("/profiles")
-def create_profile(body: ProfileBody) -> dict[str, Any]:
+def create_profile(body: ProfileBody, user=Depends(current_user)) -> dict[str, Any]:
     return store.create_profile(
         name=body.name, modules=body.modules, description=body.description,
-        target=body.target, options=body.options,
+        target=body.target, options=body.options, user_id=user_id_of(user),
     )
 
 
 @app.put("/profiles/{profile_id}")
-def update_profile(profile_id: int, body: ProfileBody) -> dict[str, Any]:
+def update_profile(profile_id: int, body: ProfileBody, user=Depends(current_user)) -> dict[str, Any]:
     prof = store.update_profile(
-        profile_id, name=body.name, modules=body.modules,
+        profile_id, user_id=user_id_of(user), name=body.name, modules=body.modules,
         description=body.description, target=body.target, options=body.options,
     )
     if prof is None:
@@ -110,29 +116,144 @@ def update_profile(profile_id: int, body: ProfileBody) -> dict[str, Any]:
 
 
 @app.delete("/profiles/{profile_id}")
-def delete_profile(profile_id: int) -> dict[str, Any]:
-    if not store.delete_profile(profile_id):
+def delete_profile(profile_id: int, user=Depends(current_user)) -> dict[str, Any]:
+    if not store.delete_profile(profile_id, user_id=user_id_of(user)):
         raise HTTPException(404, "profile not found")
     return {"deleted": profile_id}
 
 
+# ---- auth -------------------------------------------------------------
+class RegisterBody(BaseModel):
+    email: str
+    password: str = Field(..., min_length=6)
+
+
+class LoginBody(BaseModel):
+    email: str
+    password: str
+
+
+class RefreshBody(BaseModel):
+    refresh_token: str
+
+
+class ApiKeyBody(BaseModel):
+    name: str = ""
+
+
+class UserUpdateBody(BaseModel):
+    role: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+@app.get("/auth/config")
+def auth_config() -> dict[str, Any]:
+    return {"auth_enabled": AUTH_ENABLED, "user_count": auth_service.user_count()}
+
+
+@app.post("/auth/register")
+def register(body: RegisterBody) -> dict[str, Any]:
+    try:
+        user = auth_service.create_user(body.email, body.password)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    auth_service.audit("user.register", actor=user["email"], user_id=user["id"], detail=user["role"])
+    return {"user": user, **auth_service.issue_tokens(user)}
+
+
+@app.post("/auth/login")
+def login(body: LoginBody) -> dict[str, Any]:
+    user = auth_service.authenticate(body.email, body.password)
+    if user is None:
+        raise HTTPException(401, "invalid credentials")
+    auth_service.audit("user.login", actor=user["email"], user_id=user["id"])
+    return {"user": user, **auth_service.issue_tokens(user)}
+
+
+@app.post("/auth/refresh")
+def refresh(body: RefreshBody) -> dict[str, Any]:
+    from ..auth import security as sec
+    payload = sec.decode_token(body.refresh_token)
+    if not payload or payload.get("type") != "refresh":
+        raise HTTPException(401, "invalid refresh token")
+    user = auth_service.get_user(int(payload["sub"]))
+    if user is None:
+        raise HTTPException(401, "user not found")
+    return auth_service.issue_tokens(user)
+
+
+@app.get("/auth/me")
+def me(user=Depends(require_user)) -> dict[str, Any]:
+    return user
+
+
+@app.post("/auth/api-keys")
+def create_api_key(body: ApiKeyBody, user=Depends(require_user)) -> dict[str, Any]:
+    return auth_service.create_api_key(user["id"], body.name)
+
+
+@app.get("/auth/api-keys")
+def list_api_keys(user=Depends(require_user)) -> list[dict[str, Any]]:
+    return auth_service.list_api_keys(user["id"])
+
+
+@app.delete("/auth/api-keys/{key_id}")
+def revoke_api_key(key_id: int, user=Depends(require_user)) -> dict[str, Any]:
+    if not auth_service.revoke_api_key(user["id"], key_id):
+        raise HTTPException(404, "key not found")
+    return {"revoked": key_id}
+
+
+# ---- admin ------------------------------------------------------------
+@app.get("/admin/users")
+def admin_users(user=Depends(require_role("admin"))) -> list[dict[str, Any]]:
+    return auth_service.list_users()
+
+
+@app.put("/admin/users/{user_id}")
+def admin_update_user(user_id: int, body: UserUpdateBody, user=Depends(require_role("admin"))) -> dict[str, Any]:
+    try:
+        updated = auth_service.update_user(user_id, role=body.role, is_active=body.is_active)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    if updated is None:
+        raise HTTPException(404, "user not found")
+    auth_service.audit("user.update", actor=user["email"], user_id=user["id"], detail=str(user_id))
+    return updated
+
+
+@app.delete("/admin/users/{user_id}")
+def admin_delete_user(user_id: int, user=Depends(require_role("admin"))) -> dict[str, Any]:
+    if not auth_service.delete_user(user_id):
+        raise HTTPException(404, "user not found")
+    auth_service.audit("user.delete", actor=user["email"], user_id=user["id"], detail=str(user_id))
+    return {"deleted": user_id}
+
+
+@app.get("/admin/audit")
+def admin_audit(limit: int = 100, user=Depends(require_role("admin"))) -> list[dict[str, Any]]:
+    return auth_service.list_audit(limit=limit)
+
+
 @app.get("/scans")
-def list_scans(limit: int = 50) -> list[dict[str, Any]]:
-    return store.list_scans(limit=limit)
+def list_scans(limit: int = 50, user=Depends(current_user)) -> list[dict[str, Any]]:
+    return store.list_scans(limit=limit, user_id=user_id_of(user))
 
 
 @app.get("/scan/{scan_id}")
-def get_scan(scan_id: int) -> dict[str, Any]:
-    scan = store.get_scan(scan_id)
+def get_scan(scan_id: int, user=Depends(current_user)) -> dict[str, Any]:
+    scan = store.get_scan(scan_id, user_id=user_id_of(user))
     if scan is None:
         raise HTTPException(404, "scan not found")
     return scan
 
 
 @app.delete("/scan/{scan_id}")
-def delete_scan(scan_id: int) -> dict[str, Any]:
-    if not store.delete_scan(scan_id):
+def delete_scan(scan_id: int, user=Depends(current_user)) -> dict[str, Any]:
+    if not store.delete_scan(scan_id, user_id=user_id_of(user)):
         raise HTTPException(404, "scan not found")
+    auth_service.audit("scan.delete", actor=(user or {}).get("email", "anon"),
+                       user_id=user_id_of(user), detail=str(scan_id))
     return {"deleted": scan_id}
 
 

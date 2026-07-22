@@ -116,3 +116,18 @@ pytest -q
 
 Integration tests assert every wrapper returns a non-`ERROR` status against the
 lab (skipped automatically when a tool isn't installed).
+
+## Authentication (optional)
+
+Auth is off by default (single-user/dev). Enable multi-tenancy with:
+
+```bash
+export INFILTR_AUTH=1
+export INFILTR_SECRET_KEY="$(python3 -c 'import secrets;print(secrets.token_urlsafe(48))')"
+./dev.sh
+```
+
+- `POST /auth/register` (first user becomes **admin**), `/auth/login`, `/auth/refresh`, `/auth/me`
+- API keys: `POST /auth/api-keys` → use via `X-API-Key` header
+- Roles: `admin` > `operator` > `viewer`; admin endpoints under `/admin/*` (users, audit log)
+- All scans and profiles are scoped to the authenticated user; per-user rate limiting applies

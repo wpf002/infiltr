@@ -99,6 +99,66 @@ class ModuleResult(Base):
         return d
 
 
+class User(Base):
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    hashed_password: Mapped[str] = mapped_column(String(255))
+    role: Mapped[str] = mapped_column(String(16), default="operator")  # admin|operator|viewer
+    is_active: Mapped[bool] = mapped_column(default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "email": self.email,
+            "role": self.role,
+            "is_active": self.is_active,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class ApiKey(Base):
+    __tablename__ = "api_keys"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(Integer, index=True)
+    name: Mapped[str] = mapped_column(String(64), default="")
+    prefix: Mapped[str] = mapped_column(String(16), index=True)
+    key_hash: Mapped[str] = mapped_column(String(128))
+    active: Mapped[bool] = mapped_column(default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+    last_used: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id, "user_id": self.user_id, "name": self.name,
+            "prefix": self.prefix, "active": self.active,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "last_used": self.last_used.isoformat() if self.last_used else None,
+        }
+
+
+class AuditLog(Base):
+    __tablename__ = "audit_log"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, index=True)
+    actor: Mapped[str] = mapped_column(String(255), default="")
+    action: Mapped[str] = mapped_column(String(64), index=True)
+    detail: Mapped[str] = mapped_column(Text, default="")
+    target: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id, "user_id": self.user_id, "actor": self.actor,
+            "action": self.action, "detail": self.detail, "target": self.target,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
 class Profile(Base):
     """A named, reusable scan configuration (user-defined; built-ins live in code)."""
     __tablename__ = "profiles"
