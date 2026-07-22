@@ -8,7 +8,9 @@ services:
     ports:
       - "8000:8000"
     environment:
-      INFILTR_AUTH: "1"
+      # Auth endpoints are always available; set to "1" to ENFORCE login/API-keys.
+      # Left off by default so the bundled web console is usable out of the box.
+      INFILTR_AUTH: "${INFILTR_AUTH:-0}"
       INFILTR_SCHEDULER: "1"
       INFILTR_SECRET_KEY: "${INFILTR_SECRET_KEY:-change-me-in-production}"
       INFILTR_MAX_CONCURRENT: "3"

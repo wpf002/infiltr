@@ -28,7 +28,9 @@ GLOBAL: dict[str, Any] = {
 MODULES: dict[str, dict[str, Any]] = {
     "nmap": {
         "ports": "top1000",          # "top1000" | "1-65535" | "80,443"
-        "flags": ["-sV", "-T4", "-Pn"],
+        # -sT = TCP connect scan (works unprivileged / in a non-root container;
+        # raw-socket SYN scans need CAP_NET_RAW which we deliberately don't grant)
+        "flags": ["-sT", "-sV", "-T4", "-Pn"],
         "scripts": "default",         # "default" | "vuln" | None
         "timeout": 600,
     },

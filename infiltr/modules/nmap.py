@@ -16,13 +16,13 @@ class NmapWrapper(BaseWrapper):
     OPTIONS_SCHEMA = {
         "ports": {"type": "string", "default": "top1000", "help": "'top1000' | range | csv"},
         "scripts": {"type": "string", "default": "default", "help": "'default' | 'vuln' | script name"},
-        "flags": {"type": "list", "default": ["-sV", "-T4", "-Pn"], "help": "raw nmap flags"},
+        "flags": {"type": "list", "default": ["-sT", "-sV", "-T4", "-Pn"], "help": "raw nmap flags (-sT for unprivileged connect scan)"},
     }
     DEFAULT_TIMEOUT = 600
 
     def build_command(self, target: str) -> list[str]:
         host = hostname(target)
-        cmd = [self.TOOL_BIN, *self.options.get("flags", ["-sV", "-T4", "-Pn"])]
+        cmd = [self.TOOL_BIN, *self.options.get("flags", ["-sT", "-sV", "-T4", "-Pn"])]
 
         ports = self.options.get("ports", "top1000")
         if ports == "top1000":

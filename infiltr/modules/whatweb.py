@@ -20,7 +20,9 @@ class WhatWebWrapper(BaseWrapper):
     def build_command(self, target: str) -> list[str]:
         url = normalize_url(target)
         aggr = int(self.options.get("aggression", 1))
-        return [self.TOOL_BIN, "--color=never", f"-a={aggr}", url]
+        if aggr not in (1, 3, 4):   # whatweb only accepts 1, 3, or 4
+            aggr = 1
+        return [self.TOOL_BIN, "--color=never", "-a", str(aggr), url]
 
     def parse_output(self, stdout: str, stderr: str, returncode: int) -> list[Finding]:
         text = strip_ansi(stdout)

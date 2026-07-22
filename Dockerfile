@@ -22,8 +22,12 @@ RUN pip3 install --no-cache-dir --break-system-packages -r requirements.txt
 
 COPY . .
 
-# non-root runtime
-RUN useradd -m -u 10001 infiltr && chown -R infiltr:infiltr /app
+# non-root runtime; /data is the persistence volume mountpoint (init'd with the
+# volume so SQLite/report files are writable by the unprivileged user)
+RUN useradd -m -u 10001 infiltr \
+    && mkdir -p /data \
+    && chown -R infiltr:infiltr /app /data
+VOLUME ["/data"]
 USER infiltr
 
 EXPOSE 8000
