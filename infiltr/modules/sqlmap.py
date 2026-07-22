@@ -77,6 +77,21 @@ class SqlmapWrapper(BaseWrapper):
                     findings.append(Finding(type="database", name="database", value=s, severity=SEV_INFO))
                 elif s.startswith("["):
                     break
+
+        # Table listings: "Database: dvwa\n[2 tables]\n+---+\n| users |\n..."
+        for m in re.finditer(r"Database:\s*(\S+)\s*\n\s*\[\d+ tables?\](.*?)(?:\n\n|\Z)", text, re.S | re.I):
+            db = m.group(1)
+            for row in re.findall(r"\|\s*([\w$-]+)\s*\|", m.group(2)):
+                findings.append(
+                    Finding(
+                        type="table",
+                        name="table",
+                        value=row,
+                        detail=f"database {db}",
+                        severity=SEV_INFO,
+                        metadata={"database": db},
+                    )
+                )
         return findings
 
     def summarize(self, findings: list[Finding]) -> str:

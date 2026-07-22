@@ -9,6 +9,8 @@ from ..utils import hostname, strip_ansi
 _EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
 _HOST_RE = re.compile(r"^([a-z0-9.-]+\.[a-z]{2,})(?::(\d+))?(?:\s*:\s*([\d.]+))?$", re.I)
 _IP_RE = re.compile(r"\b(\d{1,3}(?:\.\d{1,3}){3})\b")
+_ASN_RE = re.compile(r"\bAS(\d{2,7})\b")
+_LINKEDIN_RE = re.compile(r"(?:https?://)?(?:[a-z]+\.)?linkedin\.com/in/[\w%-]+", re.I)
 
 
 class TheHarvesterWrapper(BaseWrapper):
@@ -79,12 +81,35 @@ class TheHarvesterWrapper(BaseWrapper):
                 continue
             seen.add(key)
             findings.append(type_ip(ip))
+
+        for asn in sorted(set(_ASN_RE.findall(text))):
+            key = f"asn:{asn}"
+            if key in seen:
+                continue
+            seen.add(key)
+            findings.append(
+                Finding(type="asn", name="ASN", value=f"AS{asn}", severity=SEV_INFO)
+            )
+
+        for prof in sorted(set(m.rstrip("/") for m in _LINKEDIN_RE.findall(text))):
+            key = f"li:{prof.lower()}"
+            if key in seen:
+                continue
+            seen.add(key)
+            findings.append(
+                Finding(type="linkedin", name="LinkedIn profile", value=prof, severity=SEV_LOW)
+            )
         return findings
 
     def summarize(self, findings: list[Finding]) -> str:
-        e = sum(1 for f in findings if f.type == "email")
-        h = sum(1 for f in findings if f.type == "subdomain")
-        return f"{e} email(s), {h} host(s)."
+        counts = {t: 0 for t in ("email", "subdomain", "ip", "asn", "linkedin")}
+        for f in findings:
+            if f.type in counts:
+                counts[f.type] += 1
+        return (
+            f"{counts['email']} email(s), {counts['subdomain']} host(s), "
+            f"{counts['ip']} IP(s), {counts['asn']} ASN(s), {counts['linkedin']} LinkedIn."
+        )
 
 
 def type_ip(ip: str) -> Finding:

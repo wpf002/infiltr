@@ -30,10 +30,10 @@ class HydraWrapper(BaseWrapper):
             "-L", str(self.options.get("userlist")),
             "-P", str(self.options.get("passlist")),
             "-t", str(self.options.get("threads", 8)),
-            "-f",              # stop after first valid pair per host (override w/ opt)
         ]
-        if self.options.get("find_all"):
-            cmd.remove("-f")
+        # Capture every valid pair by default; set stop_first to bail after the first.
+        if self.options.get("stop_first"):
+            cmd.append("-f")
         if port:
             cmd += ["-s", str(port)]
         cmd.append(host)

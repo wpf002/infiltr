@@ -149,6 +149,67 @@ def test_hydra_parser():
     assert all(x.severity == "critical" for x in f)
 
 
+def test_theharvester_asn_and_linkedin():
+    out = """[*] Emails found:
+ceo@target.local
+
+[*] Hosts found:
+mail.target.local:10.0.0.9
+
+[*] ASNS found:
+AS13335
+AS15169
+
+[*] LinkedIn Links found:
+https://www.linkedin.com/in/jane-doe
+linkedin.com/in/john-smith/
+"""
+    f = TheHarvesterWrapper().parse_output(out, "", 0)
+    asns = {x.value for x in f if x.type == "asn"}
+    li = {x.value for x in f if x.type == "linkedin"}
+    assert "AS13335" in asns and "AS15169" in asns
+    assert any("jane-doe" in x for x in li)
+    assert any("john-smith" in x for x in li)
+
+
+def test_sqlmap_table_extraction():
+    out = """Parameter: id (GET)
+    Type: error-based
+back-end DBMS: MySQL
+Database: dvwa
+[2 tables]
++-----------+
+| guestbook |
+| users     |
++-----------+
+
+"""
+    f = SqlmapWrapper().parse_output(out, "", 0)
+    tables = {x.value for x in f if x.type == "table"}
+    assert {"guestbook", "users"} <= tables
+    assert all(x.metadata["database"] == "dvwa" for x in f if x.type == "table")
+
+
+def test_xsstrike_context_and_scores():
+    out = """[+] Payload: <script>alert(1)</script>
+[!] Efficiency: 100
+[!] Confidence: 10
+[+] Context: HTML"""
+    f = XSStrikeWrapper().parse_output(out, "", 0)
+    assert len(f) == 1
+    x = f[0]
+    assert x.metadata["efficiency"] == 100
+    assert x.metadata["confidence"] == 10
+    assert x.metadata["payload_type"] == "reflected"
+    assert "script" in x.name.lower() or "html" in x.name.lower()
+
+
+def test_hydra_captures_all_pairs_by_default():
+    w = HydraWrapper()
+    cmd = w.build_command("http://localhost:8080")
+    assert "-f" not in cmd  # captures every valid pair unless stop_first is set
+
+
 def test_ffuf_parser_reads_json(tmp_path):
     import json
     w = FfufWrapper()
