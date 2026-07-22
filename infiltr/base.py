@@ -1,7 +1,9 @@
 """Core abstractions every tool wrapper builds on."""
 from __future__ import annotations
 
+import os
 import shutil
+import signal
 import subprocess
 import time
 from dataclasses import dataclass, field, asdict
@@ -91,6 +93,26 @@ class BaseWrapper:
 
     def __init__(self, options: dict[str, Any] | None = None):
         self.options = options or {}
+        self._proc: subprocess.Popen | None = None
+        self._cancelled = False
+
+    # ---- cancellation -------------------------------------------------
+    def terminate(self) -> None:
+        """Cancel this module: mark cancelled and kill its process group if running."""
+        self._cancelled = True
+        self._kill_proc()
+
+    def _kill_proc(self) -> None:
+        proc = self._proc
+        if proc is None:
+            return
+        try:
+            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+        except Exception:  # noqa: BLE001
+            try:
+                proc.kill()
+            except Exception:  # noqa: BLE001
+                pass
 
     # ---- manifest / validation ---------------------------------------
     @classmethod
@@ -159,6 +181,12 @@ class BaseWrapper:
             started_at=started.isoformat(),
         )
 
+        if self._cancelled:
+            result.status = ERROR
+            result.error = "cancelled"
+            result.finished_at = datetime.now(timezone.utc).isoformat()
+            return result
+
         if not self.is_installed():
             result.status = ERROR
             result.error = f"{self.TOOL_BIN} not installed (not on PATH)"
@@ -181,22 +209,40 @@ class BaseWrapper:
             stdin_data = None
         t0 = time.monotonic()
         try:
-            proc = subprocess.run(
+            # Popen (not subprocess.run) so the process is killable via terminate()
+            proc = subprocess.Popen(
                 cmd,
-                input=stdin_data,
-                capture_output=True,
+                stdin=subprocess.PIPE if stdin_data is not None else None,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 text=True,
-                timeout=timeout,
-                check=False,
+                start_new_session=True,  # own process group -> kill children too
             )
-            stdout, stderr, rc = proc.stdout, proc.stderr, proc.returncode
-        except subprocess.TimeoutExpired as exc:
-            result.status = ERROR
-            result.error = f"timed out after {timeout}s"
-            result.raw_output = truncate((exc.stdout or "") if isinstance(exc.stdout, str) else "")
-            result.duration = round(time.monotonic() - t0, 2)
-            result.finished_at = datetime.now(timezone.utc).isoformat()
-            return result
+            self._proc = proc
+            try:
+                stdout, stderr = proc.communicate(input=stdin_data, timeout=timeout)
+                rc = proc.returncode
+            except subprocess.TimeoutExpired:
+                self._kill_proc()
+                stdout, stderr = proc.communicate()
+                if self._cancelled:
+                    result.status = ERROR
+                    result.error = "cancelled"
+                else:
+                    result.status = ERROR
+                    result.error = f"timed out after {timeout}s"
+                result.raw_output = truncate(stdout or "")
+                result.duration = round(time.monotonic() - t0, 2)
+                result.finished_at = datetime.now(timezone.utc).isoformat()
+                return result
+            finally:
+                self._proc = None
+            if self._cancelled:
+                result.status = ERROR
+                result.error = "cancelled"
+                result.duration = round(time.monotonic() - t0, 2)
+                result.finished_at = datetime.now(timezone.utc).isoformat()
+                return result
         except FileNotFoundError:
             result.status = ERROR
             result.error = f"{self.TOOL_BIN} vanished from PATH mid-run"

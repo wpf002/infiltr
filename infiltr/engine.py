@@ -108,6 +108,17 @@ class Engine:
         else:
             self.selected = list(self.registry.keys())
             self.unknown = []
+        self._cancelled = False
+        self._live: dict[str, BaseWrapper] = {}  # currently-running wrappers
+
+    def cancel(self) -> None:
+        """Stop the scan: skip queued modules and kill any running ones."""
+        self._cancelled = True
+        for w in list(self._live.values()):
+            try:
+                w.terminate()
+            except Exception:  # noqa: BLE001
+                pass
 
     def _instantiate(self, name: str) -> BaseWrapper:
         cls = self.registry[name]
@@ -134,12 +145,19 @@ class Engine:
             wrappers[name] = self._instantiate(name)
 
         def _run_one(name: str, wrapper) -> ScanResult:
+            if self._cancelled:
+                wrapper._cancelled = True
+                return wrapper.run(target)  # returns immediately as 'cancelled'
             if on_start:
                 try:
                     on_start(name)
                 except Exception:  # noqa: BLE001
                     pass
-            return wrapper.run(target)
+            self._live[name] = wrapper
+            try:
+                return wrapper.run(target)
+            finally:
+                self._live.pop(name, None)
 
         results: dict[str, ScanResult] = {}
         with ThreadPoolExecutor(max_workers=self.max_workers) as pool:

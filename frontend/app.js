@@ -101,6 +101,7 @@ const LiveApi = {
 
     await new Promise((resolve) => {
       const es = new EventSource(`${API_BASE}/scan/${scan_id}/events`);
+      state.es = es;
       es.addEventListener("module_start", (e) => {
         cb.onModuleStart(JSON.parse(e.data).module);
       });
@@ -187,6 +188,7 @@ function statusBadge(status, phase) {
   if (phase === "running") return `<span class="badge badge-run"><span class="spinner"></span> RUN</span>`;
   if (status === "PASS") return `<span class="badge badge-pass">PASS</span>`;
   if (status === "ERROR") return `<span class="badge badge-error">ERROR</span>`;
+  if (status === "STOP") return `<span class="badge badge-wait">STOP</span>`;
   return `<span class="badge badge-wait">WAIT</span>`;
 }
 const sevPill = (s) => `<span class="sev-pill ${s}">${s}</span>`;
@@ -338,6 +340,31 @@ function toggleRunning(on) {
   $("#run-btn").innerHTML = on ? `<span class="spinner"></span> Scanning` : `<span class="btn-ico">▶</span> Run scan`;
 }
 
+async function stopScan() {
+  if (!state.scanning) return;
+  $("#stop-btn").disabled = true;
+  $("#stop-btn").textContent = "Stopping…";
+  try {
+    if (state.live && state.scanId) {
+      await fetch(`${API_BASE}/scan/${state.scanId}/cancel`, { method: "POST" });
+    }
+  } catch (_) { /* ignore */ }
+  // stop listening immediately; the backend kills the running module + skips the rest
+  if (state.es) { try { state.es.close(); } catch (_) {} state.es = null; }
+  state.scanning = false;
+  clearInterval(state.tick);
+  // any still-running/waiting modules are now stopped
+  state.order.forEach((n) => {
+    const r = state.results[n];
+    if (r && (r.phase === "running" || r.phase === "waiting")) {
+      r.phase = "done"; r.status = "STOP"; r.summary = "stopped";
+    }
+  });
+  renderResults();
+  toggleRunning(false);
+  $("#stop-btn").textContent = "Stop";
+}
+
 async function exportJson() {
   let payload;
   if (state.live && state.scanId) {
@@ -479,9 +506,6 @@ async function init() {
   state.live = await detectApi();
   Api = state.live ? LiveApi : SimApi;
 
-  $("#conn-dot").className = "dot " + (state.live ? "dot-live" : "dot-idle");
-  $("#conn-text").textContent = state.live ? "connected" : "offline (sim)";
-
   state.explain = await Api.getExplanations();
   const mods = await Api.getModules();
   renderSidebarModules(mods);
@@ -490,6 +514,7 @@ async function init() {
   if (state.live) loadHistory();
 
   $("#run-btn").addEventListener("click", runScan);
+  $("#stop-btn").addEventListener("click", stopScan);
   $("#save-profile-btn").addEventListener("click", saveProfile);
   $("#export-btn").addEventListener("click", exportJson);
   $("#report-btn").addEventListener("click", openReport);

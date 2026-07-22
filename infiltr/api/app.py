@@ -301,6 +301,17 @@ def get_scan(scan_id: int, user=Depends(current_user)) -> dict[str, Any]:
     return scan
 
 
+@app.post("/scan/{scan_id}/cancel")
+def cancel_scan(scan_id: int, user=Depends(current_user)) -> dict[str, Any]:
+    scan = store.get_scan(scan_id, user_id=user_id_of(user))
+    if scan is None:
+        raise HTTPException(404, "scan not found")
+    stopped = manager.cancel(scan_id)
+    auth_service.audit("scan.cancel", actor=(user or {}).get("email", "anon"),
+                       user_id=user_id_of(user), detail=str(scan_id))
+    return {"scan_id": scan_id, "cancelled": stopped}
+
+
 @app.delete("/scan/{scan_id}")
 def delete_scan(scan_id: int, user=Depends(current_user)) -> dict[str, Any]:
     if not store.delete_scan(scan_id, user_id=user_id_of(user)):

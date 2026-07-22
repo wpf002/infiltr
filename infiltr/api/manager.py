@@ -23,11 +23,13 @@ class ConcurrencyError(RuntimeError):
 
 
 class Job:
-    def __init__(self, scan_id: int, total: int):
+    def __init__(self, scan_id: int, total: int, engine=None):
         self.scan_id = scan_id
         self.total = total
+        self.engine = engine
         self.completed = 0
         self.status = "running"
+        self.cancelled = False
         self.events: list[dict[str, Any]] = []
         self.subscribers: set[asyncio.Queue] = set()
         self.done = asyncio.Event()
@@ -60,7 +62,7 @@ class ScanManager:
         engine = Engine(modules=modules, options=options, max_workers=workers, skip_missing=skip_missing)
         selected = engine.selected
         scan_id = await asyncio.to_thread(store.start_scan_run, target, selected, profile, user_id)
-        job = Job(scan_id, len(selected))
+        job = Job(scan_id, len(selected), engine=engine)
         self.jobs[scan_id] = job
         self._active[key] += 1
         loop = asyncio.get_running_loop()
@@ -69,6 +71,16 @@ class ScanManager:
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
         return scan_id
+
+    def cancel(self, scan_id: int) -> bool:
+        """Stop a running scan: skip queued modules, kill running ones."""
+        job = self.jobs.get(scan_id)
+        if job is None or job.status != "running":
+            return False
+        job.cancelled = True
+        if job.engine is not None:
+            job.engine.cancel()
+        return True
 
     async def _run(self, job: Job, engine: Engine, target: str, loop: asyncio.AbstractEventLoop, key: str = "anon") -> None:
         t0 = time.monotonic()
@@ -96,7 +108,7 @@ class ScanManager:
 
         try:
             await asyncio.to_thread(engine.run, target, on_result, on_start)
-            status = "completed"
+            status = "cancelled" if job.cancelled else "completed"
         except Exception as exc:  # noqa: BLE001
             status = "error"
             self._broadcast(job, {"type": "error", "scan_id": job.scan_id, "error": str(exc)})
