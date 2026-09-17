@@ -16,6 +16,7 @@ from .. import safety
 from ..engine import Engine
 
 MAX_CONCURRENT = int(os.environ.get("INFILTR_MAX_CONCURRENT", "3"))
+GLOBAL_MAX = int(os.environ.get("INFILTR_GLOBAL_MAX_CONCURRENT", "20"))
 
 
 class ConcurrencyError(RuntimeError):
@@ -40,6 +41,7 @@ class ScanManager:
         self.jobs: dict[int, Job] = {}
         self._tasks: set[asyncio.Task] = set()
         self._active: dict[str, int] = defaultdict(int)
+        self._global_active = 0
 
     # ---- lifecycle ----------------------------------------------------
     async def start_scan(
@@ -58,15 +60,19 @@ class ScanManager:
         key = str(user_id) if user_id is not None else "anon"
         # check-and-reserve a slot atomically (no await between check and increment,
         # so no two coroutines can both pass the cap)
+        if self._global_active >= GLOBAL_MAX:
+            raise ConcurrencyError(f"server at capacity ({GLOBAL_MAX} concurrent scans)")
         if self._active[key] >= MAX_CONCURRENT:
             raise ConcurrencyError(f"max {MAX_CONCURRENT} concurrent scans reached")
         self._active[key] += 1
+        self._global_active += 1
         try:
             engine = Engine(modules=modules, options=options, max_workers=workers, skip_missing=skip_missing)
             selected = engine.selected
             scan_id = await asyncio.to_thread(store.start_scan_run, target, selected, profile, user_id)
         except Exception:
             self._active[key] = max(0, self._active[key] - 1)
+            self._global_active = max(0, self._global_active - 1)
             raise
         job = Job(scan_id, len(selected), engine=engine)
         self.jobs[scan_id] = job
@@ -76,6 +82,22 @@ class ScanManager:
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
         return scan_id
+
+    async def drain(self, timeout: float = 25.0) -> None:
+        """Graceful shutdown: cancel every live scan and wait briefly for finalize."""
+        for job in list(self.jobs.values()):
+            if job.status == "running":
+                job.cancelled = True
+                if job.engine is not None:
+                    try:
+                        job.engine.cancel()
+                    except Exception:  # noqa: BLE001
+                        pass
+        if self._tasks:
+            try:
+                await asyncio.wait(set(self._tasks), timeout=timeout)
+            except Exception:  # noqa: BLE001
+                pass
 
     def cancel(self, scan_id: int) -> bool:
         """Stop a running scan: skip queued modules, kill running ones."""
@@ -126,6 +148,7 @@ class ScanManager:
         except Exception:  # noqa: BLE001
             pass
         self._active[key] = max(0, self._active[key] - 1)
+        self._global_active = max(0, self._global_active - 1)
         job.status = status
         self._broadcast(job, {"type": "done", "scan_id": job.scan_id, "status": status, "delta": delta})
         job.done.set()

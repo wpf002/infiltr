@@ -6,7 +6,7 @@ import json
 import os
 from typing import Any, Optional
 
-from fastapi import FastAPI, HTTPException, Request, Depends
+from fastapi import FastAPI, HTTPException, Request, Depends, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -15,30 +15,36 @@ from pydantic import BaseModel, Field
 from .. import store
 from ..engine import module_status, discover
 from ..auth import service as auth_service
-from ..auth.deps import current_user, require_user, require_role, rate_limit, user_id_of, AUTH_ENABLED
+from ..auth.deps import (current_user, require_user, require_role, rate_limit,
+                         auth_rate_limit, user_id_of, AUTH_ENABLED)
 from .manager import manager
 from ..scheduler.service import Scheduler
 
-app = FastAPI(title="Infiltr API", version="0.12.0")
+from .logging_setup import setup_logging, get_logger
+setup_logging()
+log = get_logger("infiltr.api")
+
+# OpenAPI docs off by default in prod (exposes every /admin route); INFILTR_DOCS=1 to enable
+_DOCS = os.environ.get("INFILTR_DOCS", "0" if AUTH_ENABLED else "1") in ("1", "true", "True")
+app = FastAPI(
+    title="Infiltr API", version="1.0.0",
+    docs_url="/docs" if _DOCS else None,
+    redoc_url="/redoc" if _DOCS else None,
+    openapi_url="/openapi.json" if _DOCS else None,
+)
 
 _scheduler = Scheduler(manager)
 SCHEDULER_ENABLED = os.environ.get("INFILTR_SCHEDULER", "0") in ("1", "true", "True")
+_state = {"draining": False}
 
-
-@app.on_event("startup")
-async def _start_scheduler() -> None:
-    if SCHEDULER_ENABLED:
-        _scheduler.start()
-
-
-@app.on_event("shutdown")
-async def _stop_scheduler() -> None:
-    await _scheduler.stop()
-
+# CORS: wildcard is refused when auth is enforced (it would amplify any IDOR).
+_cors = os.environ.get("INFILTR_CORS", "*").split(",")
+if AUTH_ENABLED and _cors == ["*"]:
+    _cors = []  # no cross-origin until an explicit console origin is configured
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=os.environ.get("INFILTR_CORS", "*").split(","),
-    allow_credentials=True,
+    allow_origins=_cors,
+    allow_credentials=False,   # auth is Bearer / X-API-Key, never cookies
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -46,8 +52,19 @@ app.add_middleware(
 
 @app.middleware("http")
 async def security_and_cache(request, call_next):
-    """Security headers on every response; no-store on console assets."""
-    response = await call_next(request)
+    """Security headers, request-id binding, drain gate on /scan."""
+    import uuid
+    request.state.request_id = request.headers.get("X-Request-ID") or uuid.uuid4().hex[:16]
+    if _state["draining"] and request.url.path == "/scan" and request.method == "POST":
+        return Response('{"detail":"server draining"}', status_code=503, media_type="application/json")
+    try:
+        response = await call_next(request)
+    except Exception:  # noqa: BLE001
+        log.exception("unhandled_error", extra={"request_id": request.state.request_id,
+                                                 "path": request.url.path})
+        return Response('{"detail":"internal error"}', status_code=500, media_type="application/json",
+                        headers={"X-Request-ID": request.state.request_id})
+    response.headers["X-Request-ID"] = request.state.request_id
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("X-Frame-Options", "DENY")
     response.headers.setdefault("Referrer-Policy", "no-referrer")
@@ -59,15 +76,58 @@ async def security_and_cache(request, call_next):
 
 
 @app.on_event("startup")
-async def _prod_safety_checks() -> None:
-    """Fail fast on an insecure public config."""
-    from ..auth import security as sec
+async def _startup() -> None:
     if AUTH_ENABLED and not os.environ.get("INFILTR_SECRET_KEY"):
         raise RuntimeError(
             "INFILTR_AUTH=1 requires a stable INFILTR_SECRET_KEY (an ephemeral key "
             "invalidates all tokens on restart). Set INFILTR_SECRET_KEY."
         )
-    _ = sec  # keep import for side-effect parity
+    if AUTH_ENABLED and not (store_safety_allowlist() or _allow_no_allowlist()):
+        raise RuntimeError(
+            "Public deployment (INFILTR_AUTH=1) requires INFILTR_ALLOWLIST to scope "
+            "what can be scanned, or INFILTR_ALLOW_NO_ALLOWLIST=1 to explicitly accept an open scanner."
+        )
+    from .. import store as _store
+    _store.init_db()
+    # a crash/deploy leaves scans stuck 'running'; reconcile them (single-instance safe)
+    try:
+        n = _store.reconcile_running_scans()
+        if n:
+            log.warning("reconciled_stuck_scans", extra={"count": n})
+    except Exception:  # noqa: BLE001
+        log.exception("reconcile_failed")
+    if SCHEDULER_ENABLED:
+        _scheduler.start()
+    log.info("startup_complete", extra={"auth": AUTH_ENABLED, "docs": _DOCS, "scheduler": SCHEDULER_ENABLED})
+
+
+@app.on_event("shutdown")
+async def _shutdown() -> None:
+    _state["draining"] = True
+    await _scheduler.stop()
+    await manager.drain(timeout=25)
+
+
+def store_safety_allowlist() -> list:
+    from ..safety import allowlist
+    return allowlist()
+
+
+def _allow_no_allowlist() -> bool:
+    return os.environ.get("INFILTR_ALLOW_NO_ALLOWLIST", "0") in ("1", "true", "True")
+
+
+@app.get("/ready")
+def ready() -> Response:
+    """Readiness probe: 503 unless the DB is reachable."""
+    from sqlalchemy import text
+    from ..db import session_scope
+    try:
+        with session_scope() as s:
+            s.execute(text("SELECT 1"))
+    except Exception:  # noqa: BLE001
+        return Response('{"status":"not-ready"}', status_code=503, media_type="application/json")
+    return Response('{"status":"ready"}', status_code=200, media_type="application/json")
 
 
 # ---- schemas ----------------------------------------------------------
@@ -77,7 +137,22 @@ class ScanRequest(BaseModel):
     profile: Optional[str] = None
     options: Optional[dict[str, Any]] = None
     skip_missing: bool = False
-    workers: int = 6
+    workers: int = Field(6, ge=1, le=8)
+    # the caller asserts they are authorized to scan this target (required in prod)
+    authorization_attestation: bool = False
+
+
+def _require_operator(user):
+    """Enforce operator role when auth is on; no-op in single-user/dev mode."""
+    if AUTH_ENABLED and user is not None and user.get("role") == "viewer":
+        raise HTTPException(403, "operator role required for this action")
+
+
+def _client_ip(request: Request) -> str:
+    xff = request.headers.get("X-Forwarded-For")
+    if xff:
+        return xff.split(",")[0].strip()
+    return request.client.host if request.client else ""
 
 
 class ScanStarted(BaseModel):
@@ -119,34 +194,47 @@ def modules_reload(user=Depends(require_role("admin") if AUTH_ENABLED else curre
 
 
 @app.post("/scan", response_model=ScanStarted)
-async def start_scan(req: ScanRequest, user=Depends(current_user), _rl=Depends(rate_limit)) -> ScanStarted:
+async def start_scan(req: ScanRequest, request: Request,
+                     user=Depends(current_user), _rl=Depends(rate_limit)) -> ScanStarted:
     from ..profiles import resolve_modules, resolve_options
+    from ..safety import ScopeError, sanitize_options
+    from .manager import ConcurrencyError
+    _require_operator(user)
     uid = user_id_of(user)
+
+    # authorization attestation (required when auth is enforced): the user asserts
+    # they are permitted to scan this target. Recorded for incident response.
+    if AUTH_ENABLED and not req.authorization_attestation:
+        raise HTTPException(403, "authorization_attestation=true is required: you must confirm "
+                                 "you are authorized to scan this target")
+
     modules = resolve_modules(req.profile, req.modules, user_id=uid)
     registry = discover()
     selected = [m for m in modules if m in registry] if modules else list(registry)
     if not selected:
         raise HTTPException(400, "no valid modules selected")
-    # merge profile options under any explicit request options
-    options = {**resolve_options(req.profile, user_id=uid), **(req.options or {})}
-    from ..safety import ScopeError
-    from .manager import ConcurrencyError
+    # merge profile options under request options, then strip anything unsafe
+    try:
+        merged = {**resolve_options(req.profile, user_id=uid), **(req.options or {})}
+        options = sanitize_options(merged)
+    except ScopeError as exc:
+        raise HTTPException(400, f"unsafe scan option: {exc}")
     try:
         scan_id = await manager.start_scan(
-            target=req.target,
-            modules=selected,
-            options=options,
-            profile=req.profile,
-            user_id=uid,
-            workers=req.workers,
-            skip_missing=req.skip_missing,
+            target=req.target, modules=selected, options=options,
+            profile=req.profile, user_id=uid, workers=req.workers, skip_missing=req.skip_missing,
         )
     except ScopeError as exc:
+        auth_service.audit("scope.rejected", actor=(user or {}).get("email", "anon"),
+                           user_id=uid, detail=str(exc), target=req.target,
+                           ip=_client_ip(request))
         raise HTTPException(403, f"target rejected: {exc}")
     except ConcurrencyError as exc:
         raise HTTPException(429, str(exc))
     auth_service.audit("scan.start", actor=(user or {}).get("email", "anon"),
-                       user_id=uid, detail=",".join(selected), target=req.target)
+                       user_id=uid, detail=",".join(selected),
+                       target=f"{req.target} attest={req.authorization_attestation}",
+                       ip=_client_ip(request))
     return ScanStarted(scan_id=scan_id, target=req.target, modules=selected)
 
 
@@ -167,6 +255,7 @@ def list_profiles(user=Depends(current_user)) -> list[dict[str, Any]]:
 
 @app.post("/profiles")
 def create_profile(body: ProfileBody, user=Depends(current_user)) -> dict[str, Any]:
+    _require_operator(user)
     return store.create_profile(
         name=body.name, modules=body.modules, description=body.description,
         target=body.target, options=body.options, user_id=user_id_of(user),
@@ -175,6 +264,7 @@ def create_profile(body: ProfileBody, user=Depends(current_user)) -> dict[str, A
 
 @app.put("/profiles/{profile_id}")
 def update_profile(profile_id: int, body: ProfileBody, user=Depends(current_user)) -> dict[str, Any]:
+    _require_operator(user)
     prof = store.update_profile(
         profile_id, user_id=user_id_of(user), name=body.name, modules=body.modules,
         description=body.description, target=body.target, options=body.options,
@@ -186,15 +276,20 @@ def update_profile(profile_id: int, body: ProfileBody, user=Depends(current_user
 
 @app.delete("/profiles/{profile_id}")
 def delete_profile(profile_id: int, user=Depends(current_user)) -> dict[str, Any]:
+    _require_operator(user)
     if not store.delete_profile(profile_id, user_id=user_id_of(user)):
         raise HTTPException(404, "profile not found")
     return {"deleted": profile_id}
 
 
 # ---- auth -------------------------------------------------------------
+TOS_VERSION = os.environ.get("INFILTR_TOS_VERSION", "2026-01")
+
+
 class RegisterBody(BaseModel):
     email: str
-    password: str = Field(..., min_length=6)
+    password: str = Field(..., min_length=8)
+    accepted_tos: bool = False
 
 
 class LoginBody(BaseModel):
@@ -217,28 +312,44 @@ class UserUpdateBody(BaseModel):
 
 @app.get("/auth/config")
 def auth_config() -> dict[str, Any]:
-    return {"auth_enabled": AUTH_ENABLED, "user_count": auth_service.user_count()}
+    return {"auth_enabled": AUTH_ENABLED, "user_count": auth_service.user_count(),
+            "tos_version": TOS_VERSION, "aup_url": "/aup"}
+
+
+@app.get("/aup", response_class=Response)
+def acceptable_use_policy() -> Response:
+    aup = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "AUP.md")
+    try:
+        with open(aup) as fh:
+            return Response(fh.read(), media_type="text/markdown")
+    except OSError:
+        raise HTTPException(404, "AUP not found")
 
 
 @app.post("/auth/register")
-def register(body: RegisterBody) -> dict[str, Any]:
+def register(body: RegisterBody, request: Request, _rl=Depends(auth_rate_limit)) -> dict[str, Any]:
     from ..auth.deps import OPEN_REGISTRATION
     if not OPEN_REGISTRATION and auth_service.user_count() > 0:
         raise HTTPException(403, "self-registration is disabled; ask an admin to create your account")
+    if not body.accepted_tos:
+        raise HTTPException(400, "you must accept the Acceptable Use Policy (accepted_tos=true); see /AUP.md")
     try:
-        user = auth_service.create_user(body.email, body.password)
+        user = auth_service.create_user(body.email, body.password, tos_version=TOS_VERSION)
     except ValueError as exc:
         raise HTTPException(400, str(exc))
-    auth_service.audit("user.register", actor=user["email"], user_id=user["id"], detail=user["role"])
+    auth_service.audit("user.register", actor=user["email"], user_id=user["id"],
+                       detail=f"role={user['role']} tos={TOS_VERSION}", ip=_client_ip(request))
     return {"user": user, **auth_service.issue_tokens(user)}
 
 
 @app.post("/auth/login")
-def login(body: LoginBody) -> dict[str, Any]:
+def login(body: LoginBody, request: Request, _rl=Depends(auth_rate_limit)) -> dict[str, Any]:
     user = auth_service.authenticate(body.email, body.password)
     if user is None:
+        auth_service.audit("login.failed", actor=body.email, detail="invalid credentials",
+                           ip=_client_ip(request))
         raise HTTPException(401, "invalid credentials")
-    auth_service.audit("user.login", actor=user["email"], user_id=user["id"])
+    auth_service.audit("user.login", actor=user["email"], user_id=user["id"], ip=_client_ip(request))
     return {"user": user, **auth_service.issue_tokens(user)}
 
 
@@ -248,9 +359,9 @@ def refresh(body: RefreshBody) -> dict[str, Any]:
     payload = sec.decode_token(body.refresh_token)
     if not payload or payload.get("type") != "refresh":
         raise HTTPException(401, "invalid refresh token")
-    user = auth_service.get_user(int(payload["sub"]))
+    user = auth_service.get_user(int(payload["sub"]))  # active_only -> disabled users can't refresh
     if user is None:
-        raise HTTPException(401, "user not found")
+        raise HTTPException(401, "user not found or disabled")
     return auth_service.issue_tokens(user)
 
 
@@ -319,12 +430,12 @@ def admin_delete_user(user_id: int, user=Depends(require_role("admin"))) -> dict
 
 
 @app.get("/admin/audit")
-def admin_audit(limit: int = 100, user=Depends(require_role("admin"))) -> list[dict[str, Any]]:
+def admin_audit(limit: int = Query(100, ge=1, le=500), user=Depends(require_role("admin"))) -> list[dict[str, Any]]:
     return auth_service.list_audit(limit=limit)
 
 
 @app.get("/scans")
-def list_scans(limit: int = 50, user=Depends(current_user)) -> list[dict[str, Any]]:
+def list_scans(limit: int = Query(50, ge=1, le=200), user=Depends(current_user)) -> list[dict[str, Any]]:
     return store.list_scans(limit=limit, user_id=user_id_of(user))
 
 
@@ -338,6 +449,7 @@ def get_scan(scan_id: int, user=Depends(current_user)) -> dict[str, Any]:
 
 @app.post("/scan/{scan_id}/cancel")
 def cancel_scan(scan_id: int, user=Depends(current_user)) -> dict[str, Any]:
+    _require_operator(user)
     scan = store.get_scan(scan_id, user_id=user_id_of(user))
     if scan is None:
         raise HTTPException(404, "scan not found")
@@ -349,6 +461,7 @@ def cancel_scan(scan_id: int, user=Depends(current_user)) -> dict[str, Any]:
 
 @app.delete("/scan/{scan_id}")
 def delete_scan(scan_id: int, user=Depends(current_user)) -> dict[str, Any]:
+    _require_operator(user)
     if not store.delete_scan(scan_id, user_id=user_id_of(user)):
         raise HTTPException(404, "scan not found")
     auth_service.audit("scan.delete", actor=(user or {}).get("email", "anon"),
@@ -361,9 +474,9 @@ class AskBody(BaseModel):
 
 
 @app.post("/scan/{scan_id}/analyze")
-def analyze_scan(scan_id: int) -> dict[str, Any]:
+def analyze_scan(scan_id: int, user=Depends(current_user), _rl=Depends(rate_limit)) -> dict[str, Any]:
     from ..ai import flint
-    scan = store.get_scan(scan_id)
+    scan = store.get_scan(scan_id, user_id=user_id_of(user))
     if scan is None:
         raise HTTPException(404, "scan not found")
     return {
@@ -376,18 +489,19 @@ def analyze_scan(scan_id: int) -> dict[str, Any]:
 
 
 @app.post("/scan/{scan_id}/ask")
-def ask_scan(scan_id: int, body: AskBody) -> dict[str, Any]:
+def ask_scan(scan_id: int, body: AskBody, user=Depends(current_user), _rl=Depends(rate_limit)) -> dict[str, Any]:
     from ..ai import flint
-    scan = store.get_scan(scan_id)
+    scan = store.get_scan(scan_id, user_id=user_id_of(user))
     if scan is None:
         raise HTTPException(404, "scan not found")
     return {"scan_id": scan_id, "question": body.question, "answer": flint.ask(scan, body.question)}
 
 
 @app.post("/scan/{scan_id}/flag-fp")
-def flag_false_positives(scan_id: int, apply: bool = False) -> dict[str, Any]:
+def flag_false_positives(scan_id: int, apply: bool = False, user=Depends(current_user)) -> dict[str, Any]:
     from ..ai import flint
-    scan = store.get_scan(scan_id)
+    _require_operator(user)
+    scan = store.get_scan(scan_id, user_id=user_id_of(user))
     if scan is None:
         raise HTTPException(404, "scan not found")
     flagged = flint.flag_false_positives(scan)
@@ -425,6 +539,7 @@ def list_schedules(user=Depends(current_user)) -> list[dict[str, Any]]:
 
 @app.post("/schedules")
 def create_schedule(body: ScheduleBody, user=Depends(current_user)) -> dict[str, Any]:
+    _require_operator(user)
     from ..scheduler import validate_cron
     if not validate_cron(body.cron):
         raise HTTPException(400, "invalid cron expression (expected: min hr dom mon dow)")
@@ -444,6 +559,7 @@ def get_schedule(schedule_id: int, user=Depends(current_user)) -> dict[str, Any]
 
 @app.put("/schedules/{schedule_id}")
 def update_schedule(schedule_id: int, body: ScheduleBody, user=Depends(current_user)) -> dict[str, Any]:
+    _require_operator(user)
     from ..scheduler import validate_cron
     if body.cron and not validate_cron(body.cron):
         raise HTTPException(400, "invalid cron expression")
@@ -458,6 +574,7 @@ def update_schedule(schedule_id: int, body: ScheduleBody, user=Depends(current_u
 
 @app.delete("/schedules/{schedule_id}")
 def delete_schedule(schedule_id: int, user=Depends(current_user)) -> dict[str, Any]:
+    _require_operator(user)
     if not store.delete_schedule(schedule_id, user_id=user_id_of(user)):
         raise HTTPException(404, "schedule not found")
     return {"deleted": schedule_id}
@@ -465,6 +582,7 @@ def delete_schedule(schedule_id: int, user=Depends(current_user)) -> dict[str, A
 
 @app.post("/schedules/{schedule_id}/run")
 async def run_schedule_now(schedule_id: int, user=Depends(current_user)) -> dict[str, Any]:
+    _require_operator(user)
     sc = store.get_schedule(schedule_id, user_id=user_id_of(user))
     if sc is None:
         raise HTTPException(404, "schedule not found")
@@ -472,10 +590,26 @@ async def run_schedule_now(schedule_id: int, user=Depends(current_user)) -> dict
     return {"schedule_id": schedule_id, "scan_id": scan_id}
 
 
+def _user_from_query_token(token: Optional[str]) -> Optional[dict]:
+    """Resolve a user for browser-navigation endpoints (SSE/report) that can't send
+    an Authorization header. Returns None when auth is disabled; raises 401 otherwise."""
+    if not AUTH_ENABLED:
+        return None
+    from ..auth import security as sec
+    if token:
+        payload = sec.decode_token(token)
+        if payload and payload.get("type") == "access":
+            u = auth_service.get_user(int(payload["sub"]))
+            if u:
+                return u
+    raise HTTPException(401, "a valid ?token= access token is required")
+
+
 @app.get("/scan/{scan_id}/report")
-def scan_report(scan_id: int, format: str = "html", client: str = "") -> Response:
+def scan_report(scan_id: int, format: str = "html", client: str = "", token: Optional[str] = None) -> Response:
     from ..reporting import render_html, render_markdown, render_pdf, ReportTheme, PDF_AVAILABLE
-    scan = store.get_scan(scan_id)
+    user = _user_from_query_token(token)
+    scan = store.get_scan(scan_id, user_id=user_id_of(user))
     if scan is None:
         raise HTTPException(404, "scan not found")
     theme = ReportTheme(client=client)
@@ -492,8 +626,12 @@ def scan_report(scan_id: int, format: str = "html", client: str = "") -> Respons
 
 
 @app.get("/scan/{scan_id}/events")
-async def scan_events(scan_id: int, request: Request) -> StreamingResponse:
+async def scan_events(scan_id: int, request: Request, token: Optional[str] = None) -> StreamingResponse:
     """Server-Sent Events stream of live scan progress."""
+    user = _user_from_query_token(token)
+    if store.get_scan(scan_id, user_id=user_id_of(user)) is None:
+        raise HTTPException(404, "scan not found")
+
     async def event_gen():
         async for evt in manager.subscribe(scan_id):
             if await request.is_disconnected():

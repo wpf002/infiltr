@@ -166,3 +166,31 @@ docker compose -f docker-compose.saas.yml up -d --build
 - **Horizontal scale** — replicas share Postgres; live scan progress is DB-backed so any replica can serve the SSE stream.
 - **Security headers** on every response (nosniff, DENY frame, no-referrer); fails fast if `INFILTR_AUTH=1` without a stable `INFILTR_SECRET_KEY`.
 - `masscan` needs `CAP_NET_RAW` (granted in compose); it reports clearly when raw sockets are unavailable.
+
+## Launch hardening (multi-tenant public deployment)
+
+`docker-compose.saas.yml` ships the locked-down profile. Key controls:
+
+- **SSRF guard** (`INFILTR_BLOCK_PRIVATE=1`): targets are DNS-resolved and any
+  loopback/RFC1918/link-local/reserved address is refused (blocks scanning the
+  platform's own infra and other tenants).
+- **Argument-injection defense** (`INFILTR_LOCK_OPTIONS=1`): users may only tweak a
+  curated safe option set; dangerous keys (nmap flags/scripts, metasploit module/
+  payload, hydra wordlist paths) are dropped. Metasploit is auxiliary-only unless
+  `INFILTR_MSF_ALLOW_EXPLOIT=1`; RHOSTS/payload overrides are stripped.
+- **Authorization**: enforced auth; every scan requires `authorization_attestation`
+  and registration requires accepting the AUP (`/aup`), both audited with source IP.
+  Fails to boot under `INFILTR_AUTH=1` without `INFILTR_ALLOWLIST` (or an explicit
+  `INFILTR_ALLOW_NO_ALLOWLIST=1`).
+- **Tenant isolation**: every scan/report/SSE/AI endpoint is auth-scoped by
+  `user_id` (SSE/report take a `?token=`); mutating routes require `operator`.
+- **RBAC/session**: disabling a user revokes their JWTs immediately; login/register
+  are per-IP rate-limited; user enumeration is timing-equalized.
+- **Ops**: `/ready` DB probe (Railway/compose healthcheck), structured JSON logs
+  with request IDs, graceful drain on shutdown, startup reconcile of stuck scans,
+  global + per-user concurrency caps, additive schema auto-migration on boot.
+
+**Not yet (gated):** horizontal scale (`--scale infiltr>1`) needs shared state —
+concurrency caps, cancellation, rate limits and the scheduler are per-replica.
+Launch single-instance. Full Alembic migrations, Redis-backed state, and email
+password reset are the next steps.

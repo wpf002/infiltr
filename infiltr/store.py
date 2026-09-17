@@ -140,6 +140,22 @@ def record_module_result(scan_id: int, res: ScanResult) -> None:
             run.top_severity = res.severity
 
 
+def reconcile_running_scans() -> int:
+    """Mark scans stuck in 'running' (from a crash/deploy) as 'interrupted'. Returns count.
+
+    Safe on a single instance at startup. Do NOT call from a multi-replica boot
+    without a live-job check, or it would kill peers' in-flight scans.
+    """
+    init_db()
+    with session_scope() as s:
+        rows = s.scalars(select(ScanRun).where(ScanRun.status == "running")).all()
+        for r in rows:
+            r.status = "interrupted"
+            if r.finished_at is None:
+                r.finished_at = datetime.now(timezone.utc)
+        return len(rows)
+
+
 def finalize_scan_run(scan_id: int, duration: float, status: str = "completed") -> None:
     init_db()
     with session_scope() as s:

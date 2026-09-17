@@ -86,7 +86,7 @@ const LiveApi = {
   },
 
   async runScan(target, { modules, profile }, cb) {
-    const body = { target };
+    const body = { target, authorization_attestation: true };
     if (profile && profile !== "full") body.profile = profile;
     if (modules && modules.length) body.modules = modules;
     const r = await fetch(`${API_BASE}/scan`, {

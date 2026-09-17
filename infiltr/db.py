@@ -56,7 +56,33 @@ def init_db(force: bool = False) -> None:
             return
         from .models import Base  # local import to avoid cycles
         Base.metadata.create_all(engine)
+        _sync_additive_columns(Base)
         _initialized = True
+
+
+def _sync_additive_columns(Base) -> None:
+    """Add any nullable columns present in the models but missing from an existing
+    table (create_all only adds whole tables, never columns). Additive only — a
+    destructive change (drop/retype/NOT NULL) still needs a real migration.
+    Works on SQLite and Postgres; safe to run repeatedly.
+    """
+    from sqlalchemy import inspect as sa_inspect, text
+    insp = sa_inspect(engine)
+    for table in Base.metadata.sorted_tables:
+        if not insp.has_table(table.name):
+            continue
+        existing = {c["name"] for c in insp.get_columns(table.name)}
+        for col in table.columns:
+            if col.name in existing:
+                continue
+            if not (col.nullable or col.server_default is not None):
+                continue  # can't safely backfill a NOT NULL column on live rows
+            try:
+                coltype = col.type.compile(dialect=engine.dialect)
+                with engine.begin() as conn:
+                    conn.execute(text(f'ALTER TABLE {table.name} ADD COLUMN {col.name} {coltype}'))
+            except Exception:  # noqa: BLE001 — best effort; real migrations own the rest
+                pass
 
 
 @contextmanager

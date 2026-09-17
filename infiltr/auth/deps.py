@@ -12,7 +12,7 @@ import time
 from collections import defaultdict, deque
 from typing import Optional
 
-from fastapi import Depends, Header, HTTPException
+from fastapi import Depends, Header, HTTPException, Request
 
 from . import security, service
 
@@ -78,3 +78,29 @@ def rate_limit(user: Optional[dict] = Depends(current_user)) -> None:
 
 def user_id_of(user: Optional[dict]) -> Optional[int]:
     return user["id"] if user else None
+
+
+# ---- auth-endpoint brute-force limiter (always on, per client IP) -----
+AUTH_RATE_LIMIT = int(os.environ.get("INFILTR_AUTH_RATE_LIMIT", "10"))   # attempts
+AUTH_RATE_WINDOW = int(os.environ.get("INFILTR_AUTH_RATE_WINDOW", "300"))  # seconds
+_auth_buckets: dict[str, deque] = defaultdict(deque)
+
+
+def _client_ip(request: Request) -> str:
+    xff = request.headers.get("X-Forwarded-For")
+    if xff:
+        return xff.split(",")[0].strip()
+    return request.client.host if request.client else "?"
+
+
+def auth_rate_limit(request: Request) -> None:
+    """Per-IP limiter for /auth/login and /auth/register (credential stuffing).
+    In-memory per replica; front a single instance or add Redis for multi-node."""
+    ip = _client_ip(request)
+    now = time.time()
+    bucket = _auth_buckets[ip]
+    while bucket and bucket[0] < now - AUTH_RATE_WINDOW:
+        bucket.popleft()
+    if len(bucket) >= AUTH_RATE_LIMIT:
+        raise HTTPException(429, "too many attempts; slow down")
+    bucket.append(now)

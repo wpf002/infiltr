@@ -22,26 +22,34 @@ class HydraWrapper(BaseWrapper):
     DESCRIPTION = "Parallel network login brute forcer"
     DEFAULT_TIMEOUT = 600
 
+    _SAFE_SERVICES = {"http-get", "http-head", "https-get", "ssh", "ftp", "smb",
+                      "rdp", "mysql", "postgres", "telnet", "vnc"}
+
     def build_command(self, target: str) -> list[str]:
         host, port = host_port(target)
         service = self.options.get("service", "http-get")
-        path = urlparse(base_url(target) + "/").path or "/"
-        # allow explicit form spec via options
+        if service not in self._SAFE_SERVICES:
+            service = "http-get"
+        default_path = urlparse(base_url(target) + "/").path or "/"
+        path = str(self.options.get("path", default_path))
+        # a path is appended raw to the hydra module spec — reject anything with
+        # hydra field separators / metachars that could inject module options
+        # no ':' or ';' — those are hydra module field separators (injection)
+        if not re.match(r"^/[A-Za-z0-9._~!$&'()*+,=@%/\-]*$", path):
+            path = "/"
         cmd = [
             self.TOOL_BIN,
             "-L", str(self.options.get("userlist")),
             "-P", str(self.options.get("passlist")),
-            "-t", str(self.options.get("threads", 8)),
+            "-t", str(int(self.options.get("threads", 8))),
         ]
-        # Capture every valid pair by default; set stop_first to bail after the first.
         if self.options.get("stop_first"):
             cmd.append("-f")
         if port:
-            cmd += ["-s", str(port)]
+            cmd += ["-s", str(int(port))]
         cmd.append(host)
-        # service module + optional path
         if service in {"http-get", "http-head", "https-get"}:
-            cmd += [service, str(self.options.get("path", path))]
+            cmd += [service, path]
         else:
             cmd.append(service)
         return cmd

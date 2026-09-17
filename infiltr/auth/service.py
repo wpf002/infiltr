@@ -19,17 +19,23 @@ def user_count() -> int:
         return s.scalar(select(func.count()).select_from(User)) or 0
 
 
-def create_user(email: str, password: str, role: str = "operator") -> dict[str, Any]:
+# bcrypt hash of a random string; verified against on unknown-user login so the
+# response timing does not reveal whether an email exists (user-enumeration guard)
+_DUMMY_HASH = security.hash_password("infiltr-timing-equalizer")
+
+
+def create_user(email: str, password: str, role: str = "operator",
+                 tos_version: str | None = None) -> dict[str, Any]:
     init_db()
     if role not in ROLES:
         raise ValueError(f"invalid role: {role}")
-    # first user is always an admin (bootstrap)
     if user_count() == 0:
-        role = "admin"
+        role = "admin"  # first user bootstraps
     with session_scope() as s:
         if s.scalar(select(User).where(User.email == email)):
             raise ValueError("email already registered")
-        u = User(email=email, hashed_password=security.hash_password(password), role=role)
+        u = User(email=email, hashed_password=security.hash_password(password),
+                 role=role, accepted_tos_version=tos_version)
         s.add(u)
         s.flush()
         return u.to_dict()
@@ -40,17 +46,32 @@ def authenticate(email: str, password: str) -> Optional[dict[str, Any]]:
     with session_scope() as s:
         u = s.scalar(select(User).where(User.email == email))
         if u is None or not u.is_active:
+            security.verify_password(password, _DUMMY_HASH)  # equalize timing
             return None
         if not security.verify_password(password, u.hashed_password):
             return None
         return u.to_dict()
 
 
-def get_user(user_id: int) -> Optional[dict[str, Any]]:
+def get_user(user_id: int, active_only: bool = True) -> Optional[dict[str, Any]]:
+    """Look up a user. active_only (default) returns None for disabled accounts so
+    outstanding JWTs stop working the moment an admin sets is_active=False."""
     init_db()
     with session_scope() as s:
         u = s.get(User, user_id)
-        return u.to_dict() if u else None
+        if u is None or (active_only and not u.is_active):
+            return None
+        return u.to_dict()
+
+
+def set_password(user_id: int, new_password: str) -> bool:
+    init_db()
+    with session_scope() as s:
+        u = s.get(User, user_id)
+        if u is None:
+            return False
+        u.hashed_password = security.hash_password(new_password)
+        return True
 
 
 def list_users() -> list[dict[str, Any]]:
@@ -76,11 +97,21 @@ def update_user(user_id: int, role: str | None = None, is_active: bool | None = 
 
 
 def delete_user(user_id: int) -> bool:
+    """Delete a user AND all their data (scans/findings/profiles/schedules/api-keys).
+    No DB-level FK to users, so cascade manually to avoid orphaned tenant rows."""
     init_db()
+    from ..models import ScanRun, Profile, Schedule, ApiKey as ApiKeyModel
+    from sqlalchemy import delete as sa_delete
     with session_scope() as s:
         u = s.get(User, user_id)
         if u is None:
             return False
+        # scans cascade to module_results/findings via their FK ondelete
+        for run in s.scalars(select(ScanRun).where(ScanRun.user_id == user_id)).all():
+            s.delete(run)
+        s.execute(sa_delete(Profile).where(Profile.user_id == user_id))
+        s.execute(sa_delete(Schedule).where(Schedule.user_id == user_id))
+        s.execute(sa_delete(ApiKeyModel).where(ApiKeyModel.user_id == user_id))
         s.delete(u)
         return True
 
@@ -137,10 +168,12 @@ def resolve_api_key(full_key: str) -> Optional[dict[str, Any]]:
 
 
 # ---- audit ------------------------------------------------------------
-def audit(action: str, actor: str = "", user_id: int | None = None, detail: str = "", target: str | None = None) -> None:
+def audit(action: str, actor: str = "", user_id: int | None = None, detail: str = "",
+          target: str | None = None, ip: str | None = None) -> None:
     init_db()
     with session_scope() as s:
-        s.add(AuditLog(action=action, actor=actor, user_id=user_id, detail=detail, target=target))
+        s.add(AuditLog(action=action, actor=actor, user_id=user_id, detail=detail,
+                       target=target, ip_address=ip))
 
 
 def list_audit(limit: int = 100) -> list[dict[str, Any]]:

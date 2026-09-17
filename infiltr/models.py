@@ -107,6 +107,7 @@ class User(Base):
     hashed_password: Mapped[str] = mapped_column(String(255))
     role: Mapped[str] = mapped_column(String(16), default="operator")  # admin|operator|viewer
     is_active: Mapped[bool] = mapped_column(default=True)
+    accepted_tos_version: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
 
     def to_dict(self) -> dict[str, Any]:
@@ -115,6 +116,7 @@ class User(Base):
             "email": self.email,
             "role": self.role,
             "is_active": self.is_active,
+            "accepted_tos_version": self.accepted_tos_version,
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }
 
@@ -149,12 +151,14 @@ class AuditLog(Base):
     action: Mapped[str] = mapped_column(String(64), index=True)
     detail: Mapped[str] = mapped_column(Text, default="")
     target: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    ip_address: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "id": self.id, "user_id": self.user_id, "actor": self.actor,
             "action": self.action, "detail": self.detail, "target": self.target,
+            "ip_address": self.ip_address,
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }
 

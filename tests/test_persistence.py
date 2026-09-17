@@ -61,6 +61,24 @@ def test_history_and_histogram(tmp_db):
     assert histogram["low"] == 1
 
 
+def test_additive_migration_adds_missing_column(tmp_path, monkeypatch):
+    """init_db must add nullable columns that exist in the models but not the DB
+    (create_all alone never alters an existing table)."""
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{tmp_path/'mig.db'}")
+    import importlib
+    import infiltr.db as db
+    import infiltr.models as models
+    importlib.reload(db)
+    importlib.reload(models)
+    from sqlalchemy import text, inspect
+    # simulate an old schema: audit_log without ip_address
+    with db.engine.begin() as c:
+        c.execute(text("CREATE TABLE audit_log (id INTEGER PRIMARY KEY, action VARCHAR)"))
+    db.init_db(force=True)
+    cols = {c["name"] for c in inspect(db.engine).get_columns("audit_log")}
+    assert "ip_address" in cols
+
+
 def test_delete(tmp_db):
     store = tmp_db
     sid = store.save_scan("http://a", _sample_results(), duration=1.0)

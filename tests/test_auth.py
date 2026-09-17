@@ -55,6 +55,7 @@ def auth_server(tmp_path):
         PYTHONPATH=ROOT,
         INFILTR_AUTH="1",
         INFILTR_SECRET_KEY="test-secret-key",
+        INFILTR_ALLOW_NO_ALLOWLIST="1",
     )
     proc = subprocess.Popen(
         [sys.executable, "-m", "uvicorn", "infiltr.api.app:app",
@@ -87,7 +88,7 @@ def test_auth_required_when_enabled(auth_server):
 
 
 def test_register_login_me_and_first_is_admin(auth_server):
-    reg = httpx.post(f"{auth_server}/auth/register", json={"email": "a@x.com", "password": "hunter2"})
+    reg = httpx.post(f"{auth_server}/auth/register", json={"email": "a@x.com", "password": "hunter22", "accepted_tos": True})
     assert reg.status_code == 200, reg.text
     data = reg.json()
     assert data["user"]["role"] == "admin"  # first user bootstraps as admin
@@ -95,17 +96,17 @@ def test_register_login_me_and_first_is_admin(auth_server):
     me = httpx.get(f"{auth_server}/auth/me", headers=_auth(tok)).json()
     assert me["email"] == "a@x.com"
 
-    login = httpx.post(f"{auth_server}/auth/login", json={"email": "a@x.com", "password": "hunter2"})
+    login = httpx.post(f"{auth_server}/auth/login", json={"email": "a@x.com", "password": "hunter22"})
     assert login.status_code == 200
     assert httpx.post(f"{auth_server}/auth/login", json={"email": "a@x.com", "password": "bad"}).status_code == 401
 
 
 def test_scans_scoped_per_user(auth_server):
-    admin = httpx.post(f"{auth_server}/auth/register", json={"email": "admin@x.com", "password": "pw123456"}).json()
-    op = httpx.post(f"{auth_server}/auth/register", json={"email": "op@x.com", "password": "pw123456"}).json()
+    admin = httpx.post(f"{auth_server}/auth/register", json={"email": "admin@x.com", "password": "pw123456", "accepted_tos": True}).json()
+    op = httpx.post(f"{auth_server}/auth/register", json={"email": "op@x.com", "password": "pw123456", "accepted_tos": True}).json()
 
     sid = httpx.post(f"{auth_server}/scan", headers=_auth(admin["access_token"]),
-                     json={"target": "http://localhost:8080", "modules": ["nmap"]}).json()["scan_id"]
+                     json={"target": "http://localhost:8080", "modules": ["nmap"], "authorization_attestation": True}).json()["scan_id"]
     # owner sees it
     assert httpx.get(f"{auth_server}/scan/{sid}", headers=_auth(admin["access_token"])).status_code == 200
     # other user does not
@@ -114,21 +115,21 @@ def test_scans_scoped_per_user(auth_server):
 
 
 def test_rbac_admin_only(auth_server):
-    httpx.post(f"{auth_server}/auth/register", json={"email": "admin@x.com", "password": "pw123456"})  # admin
-    op = httpx.post(f"{auth_server}/auth/register", json={"email": "op@x.com", "password": "pw123456"}).json()
+    httpx.post(f"{auth_server}/auth/register", json={"email": "admin@x.com", "password": "pw123456", "accepted_tos": True})  # admin
+    op = httpx.post(f"{auth_server}/auth/register", json={"email": "op@x.com", "password": "pw123456", "accepted_tos": True}).json()
     assert op["user"]["role"] == "operator"
     # operator cannot list users
     assert httpx.get(f"{auth_server}/admin/users", headers=_auth(op["access_token"])).status_code == 403
 
 
 def test_api_key_auth_and_audit(auth_server):
-    admin = httpx.post(f"{auth_server}/auth/register", json={"email": "admin@x.com", "password": "pw123456"}).json()
+    admin = httpx.post(f"{auth_server}/auth/register", json={"email": "admin@x.com", "password": "pw123456", "accepted_tos": True}).json()
     tok = admin["access_token"]
     key = httpx.post(f"{auth_server}/auth/api-keys", headers=_auth(tok), json={"name": "ci"}).json()
     assert "api_key" in key
     # use the API key to authenticate a scan
     r = httpx.post(f"{auth_server}/scan", headers={"X-API-Key": key["api_key"]},
-                   json={"target": "http://localhost:8080", "modules": ["nmap"]})
+                   json={"target": "http://localhost:8080", "modules": ["nmap"], "authorization_attestation": True})
     assert r.status_code == 200
     # audit log records events (admin only)
     audit = httpx.get(f"{auth_server}/admin/audit", headers=_auth(tok)).json()
@@ -137,7 +138,7 @@ def test_api_key_auth_and_audit(auth_server):
 
 
 def test_admin_creates_user(auth_server):
-    admin = httpx.post(f"{auth_server}/auth/register", json={"email": "admin@x.com", "password": "pw123456"}).json()
+    admin = httpx.post(f"{auth_server}/auth/register", json={"email": "admin@x.com", "password": "pw123456", "accepted_tos": True}).json()
     tok = admin["access_token"]
     # admin onboards an operator (the multi-tenant path when self-registration is off)
     created = httpx.post(f"{auth_server}/admin/users", headers=_auth(tok),
@@ -147,13 +148,41 @@ def test_admin_creates_user(auth_server):
     # the new user can log in
     assert httpx.post(f"{auth_server}/auth/login", json={"email": "op2@x.com", "password": "pw123456"}).status_code == 200
     # a non-admin cannot create users
-    op = httpx.post(f"{auth_server}/auth/register", json={"email": "op3@x.com", "password": "pw123456"}).json()
+    op = httpx.post(f"{auth_server}/auth/register", json={"email": "op3@x.com", "password": "pw123456", "accepted_tos": True}).json()
     assert httpx.post(f"{auth_server}/admin/users", headers=_auth(op["access_token"]),
                       json={"email": "x@x.com", "password": "pw123456"}).status_code == 403
 
 
+def test_scan_subresources_require_auth(auth_server):
+    # the report/events/analyze/ask/flag-fp endpoints must not be anonymous (IDOR fix)
+    for path, method in [("/scan/1/report", "GET"), ("/scan/1/events", "GET"),
+                         ("/scan/1/analyze", "POST"), ("/scan/1/flag-fp", "POST")]:
+        r = httpx.request(method, f"{auth_server}{path}")
+        assert r.status_code == 401, f"{path} -> {r.status_code}"
+
+
+def test_attestation_required(auth_server):
+    admin = httpx.post(f"{auth_server}/auth/register", json={"email": "a@x.com", "password": "pw123456", "accepted_tos": True}).json()
+    r = httpx.post(f"{auth_server}/scan", headers=_auth(admin["access_token"]),
+                   json={"target": "http://localhost:8080", "modules": ["nmap"]})  # no attestation
+    assert r.status_code == 403
+
+
+def test_disabled_user_jwt_revoked(auth_server):
+    admin = httpx.post(f"{auth_server}/auth/register", json={"email": "admin@x.com", "password": "pw123456", "accepted_tos": True}).json()
+    op = httpx.post(f"{auth_server}/auth/register", json={"email": "op@x.com", "password": "pw123456", "accepted_tos": True}).json()
+    op_id = op["user"]["id"]
+    assert httpx.get(f"{auth_server}/auth/me", headers=_auth(op["access_token"])).status_code == 200
+    # admin disables the operator
+    httpx.put(f"{auth_server}/admin/users/{op_id}", headers=_auth(admin["access_token"]),
+              json={"is_active": False})
+    # existing access token no longer works, and refresh is refused
+    assert httpx.get(f"{auth_server}/auth/me", headers=_auth(op["access_token"])).status_code == 401
+    assert httpx.post(f"{auth_server}/auth/refresh", json={"refresh_token": op["refresh_token"]}).status_code == 401
+
+
 def test_refresh_rotation(auth_server):
-    reg = httpx.post(f"{auth_server}/auth/register", json={"email": "a@x.com", "password": "pw123456"}).json()
+    reg = httpx.post(f"{auth_server}/auth/register", json={"email": "a@x.com", "password": "pw123456", "accepted_tos": True}).json()
     new = httpx.post(f"{auth_server}/auth/refresh", json={"refresh_token": reg["refresh_token"]})
     assert new.status_code == 200 and "access_token" in new.json()
     # an access token is not a valid refresh token

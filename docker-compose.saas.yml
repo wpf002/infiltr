@@ -28,12 +28,20 @@ services:
     environment:
       INFILTR_AUTH: "1"                       # enforced login / API keys
       INFILTR_OPEN_REGISTRATION: "0"          # only the bootstrap admin self-registers
+      INFILTR_LOCK_OPTIONS: "1"               # users can't inject dangerous scan options
+      INFILTR_BLOCK_PRIVATE: "1"              # SSRF guard: no scanning internal/private IPs
+      INFILTR_DOCS: "0"                       # no public OpenAPI in prod
       INFILTR_SCHEDULER: "1"
       INFILTR_SECRET_KEY: "${INFILTR_SECRET_KEY:?set INFILTR_SECRET_KEY}"
-      INFILTR_MAX_CONCURRENT: "${INFILTR_MAX_CONCURRENT:-3}"
-      INFILTR_RATE_LIMIT: "${INFILTR_RATE_LIMIT:-60}"
+      # Scope guard is REQUIRED (fails to boot otherwise). Set the hosts you're
+      # authorized to scan, or set INFILTR_ALLOW_NO_ALLOWLIST=1 to accept an open scanner.
       INFILTR_ALLOWLIST: "${INFILTR_ALLOWLIST:-}"
+      INFILTR_ALLOW_NO_ALLOWLIST: "${INFILTR_ALLOW_NO_ALLOWLIST:-}"
       INFILTR_BLOCKLIST: "${INFILTR_BLOCKLIST:-}"
+      INFILTR_CORS: "${INFILTR_CORS:-}"       # explicit console origin(s), no wildcard
+      INFILTR_MAX_CONCURRENT: "${INFILTR_MAX_CONCURRENT:-3}"
+      INFILTR_GLOBAL_MAX_CONCURRENT: "${INFILTR_GLOBAL_MAX_CONCURRENT:-20}"
+      INFILTR_RATE_LIMIT: "${INFILTR_RATE_LIMIT:-60}"
       DATABASE_URL: "postgresql+psycopg://infiltr:${POSTGRES_PASSWORD}@postgres:5432/infiltr"
     ports:
       - "${PORT:-8000}:8000"
@@ -41,8 +49,12 @@ services:
       postgres:
         condition: service_healthy
     cap_add:
-      - NET_RAW
-      - NET_ADMIN
+      - NET_RAW      # nmap/masscan raw sockets; NET_ADMIN dropped (not needed)
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/ready').status==200 else 1)\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
     restart: unless-stopped
     networks: [infiltr]
 

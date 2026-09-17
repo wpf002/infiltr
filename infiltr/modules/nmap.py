@@ -1,6 +1,7 @@
 """Nmap wrapper — service/version discovery via XML output."""
 from __future__ import annotations
 
+import re
 import xml.etree.ElementTree as ET
 
 from ..base import BaseWrapper, Finding, SEV_INFO, SEV_LOW, SEV_MEDIUM
@@ -20,21 +21,30 @@ class NmapWrapper(BaseWrapper):
     }
     DEFAULT_TIMEOUT = 600
 
+    # flags that write files / load arbitrary scripts must never reach argv
+    _SAFE_FLAGS = {"-sT", "-sV", "-sS", "-sU", "-sC", "-T0", "-T1", "-T2", "-T3",
+                   "-T4", "-T5", "-Pn", "-A", "-O", "-6", "-n", "-F", "-v"}
+    _SAFE_SCRIPTS = {"default", "vuln", "safe", "auth", "discovery"}
+
     def build_command(self, target: str) -> list[str]:
         host = hostname(target)
-        cmd = [self.TOOL_BIN, *self.options.get("flags", ["-sT", "-sV", "-T4", "-Pn"])]
+        raw_flags = self.options.get("flags", ["-sT", "-sV", "-T4", "-Pn"])
+        # keep only known-safe flags (drops -oN/-oX-to-file, --script-args, --datadir, ...)
+        flags = [f for f in raw_flags if f in self._SAFE_FLAGS] or ["-sT", "-sV", "-T4", "-Pn"]
+        cmd = [self.TOOL_BIN, *flags]
 
-        ports = self.options.get("ports", "top1000")
+        ports = str(self.options.get("ports", "top1000"))
         if ports == "top1000":
             cmd += ["--top-ports", "1000"]
-        elif ports:
-            cmd += ["-p", str(ports)]
+        elif re.match(r"^[0-9,\-]+$", ports):   # digits, commas, ranges only
+            cmd += ["-p", ports]
 
         scripts = self.options.get("scripts")
         if scripts == "default":
             cmd.append("-sC")
-        elif scripts:
+        elif scripts in self._SAFE_SCRIPTS:
             cmd += ["--script", str(scripts)]
+        # anything else (arbitrary script names / paths) is ignored
 
         cmd += ["-oX", "-", host]
         return cmd

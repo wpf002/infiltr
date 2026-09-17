@@ -40,20 +40,42 @@ class MetasploitWrapper(BaseWrapper):
     }
     DEFAULT_TIMEOUT = 600
 
+    # datastore keys a user must never set (would bypass the scoped target or
+    # turn a scanner into a reverse shell); RHOSTS/RPORT are set by the wrapper.
+    _FORBIDDEN_OPTS = {"RHOSTS", "RPORT", "LHOST", "LPORT", "SRVHOST", "SRVPORT",
+                       "PAYLOAD", "SESSION", "CMD"}
+    _SET_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
     def build_command(self, target: str) -> list[str]:
+        import os
         host, port = host_port(target)
         scheme = urlparse(base_url(target)).scheme
         rport = port or (443 if scheme == "https" else 80)
-        module = str(self.options.get("module", "auxiliary/scanner/http/http_version"))
+        module = str(self.options.get("module", "auxiliary/scanner/http/http_version")).strip()
+
+        # only auxiliary modules by default — exploit/payload use needs an explicit
+        # operator opt-in (INFILTR_MSF_ALLOW_EXPLOIT) and is never user-reachable in SaaS.
+        allow_exploit = os.environ.get("INFILTR_MSF_ALLOW_EXPLOIT", "0") in ("1", "true", "True")
+        if not module.startswith("auxiliary/") and not allow_exploit:
+            raise ValueError("only auxiliary/ modules are permitted (set INFILTR_MSF_ALLOW_EXPLOIT to allow others)")
+        if not re.match(r"^[A-Za-z0-9_/]+$", module):
+            raise ValueError("invalid module path")
 
         cmds = [f"use {module}", f"set RHOSTS {host}", f"set RPORT {rport}"]
         if scheme == "https":
             cmds.append("set SSL true")
-        payload = self.options.get("payload")
-        if payload:
-            cmds.append(f"set PAYLOAD {payload}")
+        if allow_exploit:
+            payload = self.options.get("payload")
+            if payload and re.match(r"^[A-Za-z0-9_/]+$", str(payload)):
+                cmds.append(f"set PAYLOAD {payload}")
         for key, val in (self.options.get("opts") or {}).items():
-            cmds.append(f"set {key} {val}")
+            k = str(key)
+            if k.upper() in self._FORBIDDEN_OPTS or not self._SET_RE.match(k):
+                continue  # drop scope-bypass / shell keys
+            sval = str(val)
+            if any(c in sval for c in ";\n\r`|&$"):
+                continue  # drop injected metachars
+            cmds.append(f"set {k} {sval}")
         cmds += ["run", "exit -y"]
 
         resource = "; ".join(cmds)
