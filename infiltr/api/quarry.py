@@ -128,6 +128,18 @@ def _apply_context(options: dict, context: Any) -> None:
         options["ssrf"] = opt
 
 
+def _scan_auth_headers(context: Any) -> Optional[dict]:
+    """A scan-wide session for authenticated testing — applied to every module.
+    Sanitized like victim headers. Distinct from idor's *victim* identity."""
+    if not isinstance(context, dict):
+        return None
+    auth = context.get("auth")
+    if isinstance(auth, dict):
+        h = _clean_headers(auth.get("headers"))
+        return h or None
+    return None
+
+
 def _scan_options(tiers: list[int]) -> dict[str, Any]:
     # nuclei: detection templates only — always strip intrusive/dos/fuzzing tags.
     sev = "info,low,medium,high,critical"
@@ -324,11 +336,13 @@ async def _launch(req: QuarryScanRequest, user: dict) -> int:
     modules = _modules_for(req.profile.tiers, req.profile.tools)
     options = _scan_options(req.profile.tiers)
     _apply_context(options, req.context)
+    auth_headers = _scan_auth_headers(req.context)
     try:
         return await manager.start_scan(
             target=target, modules=modules, options=options,
             profile=f"quarry:t{'+'.join(map(str, req.profile.tiers))}",
             user_id=user["id"], workers=QUARRY_WORKERS, skip_missing=True,
+            auth_headers=auth_headers,
         )
     except ScopeError as exc:
         auth_service.audit("quarry.scope_rejected", actor=user["email"], user_id=user["id"],
