@@ -262,6 +262,9 @@ def _same_host(url: str, host: str) -> bool:
 
 
 _SEV_RANK = {"INFO": 0, "LOW": 1, "MEDIUM": 2, "HIGH": 3, "CRITICAL": 4}
+# enumerated URLs are attack surface, not vulnerabilities: they belong in assets,
+# never findings (otherwise a crawl floods the DB — per Quarry's spec).
+_ASSET_TYPES = {"endpoint"}
 
 
 def _transform(scan: dict, target: str) -> dict:
@@ -271,6 +274,11 @@ def _transform(scan: dict, target: str) -> dict:
     for r in scan.get("results", []):
         for f in r.get("findings", []):
             if f.get("false_positive"):
+                continue
+            if f.get("type") in _ASSET_TYPES:
+                u = _evidence_url(f) or (f.get("value") if str(f.get("value", "")).startswith("http") else "")
+                if u and _same_host(u, host):
+                    assets.add(u.rstrip("/"))
                 continue
             vuln_class = _vuln_class(f)
             severity = _SEV.get(f.get("severity", "info"), "INFO")

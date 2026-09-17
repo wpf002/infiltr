@@ -157,3 +157,19 @@ def test_transform_metadata_confidence_override():
     ]}]}
     out = _transform(scan, "http://h")
     assert out["findings"][0]["confidence"] == 0.95
+
+
+def test_transform_endpoints_go_to_assets_not_findings():
+    from infiltr.api.quarry import _transform
+    scan = {"results": [{"findings": [
+        {"type": "endpoint", "name": "ep", "value": "http://t/admin", "severity": "info",
+         "module": "katana", "metadata": {"url": "http://t/admin"}},
+        {"type": "endpoint", "name": "ep", "value": "http://t/api", "severity": "info",
+         "module": "katana", "metadata": {"url": "http://t/api"}},
+        {"type": "cors", "name": "permissive CORS", "value": "*", "severity": "medium",
+         "module": "headers", "metadata": {"url": "http://t/"}},
+    ]}]}
+    out = _transform(scan, "http://t")
+    assert [f["vulnClass"] for f in out["findings"]] == ["cors-misconfiguration"]
+    assert "http://t/admin" in out["assets"] and "http://t/api" in out["assets"]
+    assert not any(f["vulnClass"] == "discovered-endpoint" for f in out["findings"])
