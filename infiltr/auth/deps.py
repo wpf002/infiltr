@@ -8,13 +8,12 @@ data is scoped to the authenticated user.
 from __future__ import annotations
 
 import os
-import time
-from collections import defaultdict, deque
 from typing import Optional
 
 from fastapi import Depends, Header, HTTPException, Request
 
 from . import security, service
+from .. import shared_state
 
 AUTH_ENABLED = os.environ.get("INFILTR_AUTH", "0") in ("1", "true", "True")
 # When disabled, only the first (bootstrap admin) account may self-register; after
@@ -24,7 +23,6 @@ RATE_LIMIT = int(os.environ.get("INFILTR_RATE_LIMIT", "60"))       # requests
 RATE_WINDOW = int(os.environ.get("INFILTR_RATE_WINDOW", "60"))     # seconds
 
 _ROLE_RANK = {"viewer": 0, "operator": 1, "admin": 2}
-_buckets: dict[str, deque] = defaultdict(deque)
 
 
 def _resolve_user(authorization: Optional[str], x_api_key: Optional[str]) -> Optional[dict]:
@@ -63,17 +61,13 @@ def require_role(min_role: str):
 
 
 def rate_limit(user: Optional[dict] = Depends(current_user)) -> None:
-    """Fixed-window per-user (or anonymous) rate limit."""
+    """Sliding-window per-user (or anonymous) rate limit. Cross-node via Redis
+    when REDIS_URL is set, else in-process per replica."""
     if not AUTH_ENABLED:
         return
     key = str(user["id"]) if user else "anon"
-    now = time.time()
-    bucket = _buckets[key]
-    while bucket and bucket[0] < now - RATE_WINDOW:
-        bucket.popleft()
-    if len(bucket) >= RATE_LIMIT:
+    if not shared_state.allow_request(f"user:{key}", RATE_LIMIT, RATE_WINDOW):
         raise HTTPException(429, "rate limit exceeded")
-    bucket.append(now)
 
 
 def user_id_of(user: Optional[dict]) -> Optional[int]:
@@ -83,7 +77,6 @@ def user_id_of(user: Optional[dict]) -> Optional[int]:
 # ---- auth-endpoint brute-force limiter (always on, per client IP) -----
 AUTH_RATE_LIMIT = int(os.environ.get("INFILTR_AUTH_RATE_LIMIT", "10"))   # attempts
 AUTH_RATE_WINDOW = int(os.environ.get("INFILTR_AUTH_RATE_WINDOW", "300"))  # seconds
-_auth_buckets: dict[str, deque] = defaultdict(deque)
 
 
 def _client_ip(request: Request) -> str:
@@ -95,12 +88,7 @@ def _client_ip(request: Request) -> str:
 
 def auth_rate_limit(request: Request) -> None:
     """Per-IP limiter for /auth/login and /auth/register (credential stuffing).
-    In-memory per replica; front a single instance or add Redis for multi-node."""
+    Cross-node via Redis when REDIS_URL is set, else in-process per replica."""
     ip = _client_ip(request)
-    now = time.time()
-    bucket = _auth_buckets[ip]
-    while bucket and bucket[0] < now - AUTH_RATE_WINDOW:
-        bucket.popleft()
-    if len(bucket) >= AUTH_RATE_LIMIT:
+    if not shared_state.allow_request(f"auth:{ip}", AUTH_RATE_LIMIT, AUTH_RATE_WINDOW):
         raise HTTPException(429, "too many attempts; slow down")
-    bucket.append(now)

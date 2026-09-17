@@ -4,7 +4,8 @@
 #   docker compose -f docker-compose.saas.yml up -d --build
 #
 # Scale the API horizontally: `docker compose -f docker-compose.saas.yml up -d --scale infiltr=3`
-# (all replicas share Postgres; SSE progress is DB-backed so any replica can serve it).
+# (all replicas share Postgres + Redis; SSE progress is DB-backed so any replica can
+# serve it, and concurrency caps + rate limits are enforced globally via Redis).
 services:
   postgres:
     image: postgres:16-alpine
@@ -43,10 +44,15 @@ services:
       INFILTR_GLOBAL_MAX_CONCURRENT: "${INFILTR_GLOBAL_MAX_CONCURRENT:-20}"
       INFILTR_RATE_LIMIT: "${INFILTR_RATE_LIMIT:-60}"
       DATABASE_URL: "postgresql+psycopg://infiltr:${POSTGRES_PASSWORD}@postgres:5432/infiltr"
+      # Shared state across replicas: concurrency caps + rate limits live in Redis so
+      # --scale >1 enforces ONE global cap and ONE rate-limit window, not one per replica.
+      REDIS_URL: "redis://redis:6379/0"
     ports:
       - "${PORT:-8000}:8000"
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     cap_add:
       - NET_RAW      # nmap/masscan raw sockets; NET_ADMIN dropped (not needed)
@@ -55,6 +61,17 @@ services:
       interval: 15s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
+    networks: [infiltr]
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no", "--maxmemory", "128mb", "--maxmemory-policy", "allkeys-lru"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
     restart: unless-stopped
     networks: [infiltr]
 

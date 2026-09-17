@@ -8,11 +8,11 @@ from __future__ import annotations
 import asyncio
 import os
 import time
-from collections import defaultdict
 from typing import Any
 
 from .. import store
 from .. import safety
+from .. import shared_state
 from ..engine import Engine
 
 MAX_CONCURRENT = int(os.environ.get("INFILTR_MAX_CONCURRENT", "3"))
@@ -34,14 +34,13 @@ class Job:
         self.events: list[dict[str, Any]] = []
         self.subscribers: set[asyncio.Queue] = set()
         self.done = asyncio.Event()
+        self.reservation = None  # shared_state slot handle, released on finalize
 
 
 class ScanManager:
     def __init__(self) -> None:
         self.jobs: dict[int, Job] = {}
         self._tasks: set[asyncio.Task] = set()
-        self._active: dict[str, int] = defaultdict(int)
-        self._global_active = 0
 
     # ---- lifecycle ----------------------------------------------------
     async def start_scan(
@@ -59,28 +58,25 @@ class ScanManager:
         target = safety.check_scope(target)
 
         key = str(user_id) if user_id is not None else "anon"
-        # check-and-reserve a slot atomically (no await between check and increment,
-        # so no two coroutines can both pass the cap)
-        if self._global_active >= GLOBAL_MAX:
-            raise ConcurrencyError(f"server at capacity ({GLOBAL_MAX} concurrent scans)")
-        if self._active[key] >= MAX_CONCURRENT:
-            raise ConcurrencyError(f"max {MAX_CONCURRENT} concurrent scans reached")
-        self._active[key] += 1
-        self._global_active += 1
+        # atomically reserve one global + one per-user slot. Cross-node when REDIS_URL
+        # is set (all replicas share the cap); in-process counter otherwise.
+        reservation, reason = shared_state.reserve(key, MAX_CONCURRENT, GLOBAL_MAX)
+        if reservation is None:
+            raise ConcurrencyError(reason)
         try:
             engine = Engine(modules=modules, options=options, max_workers=workers,
                             skip_missing=skip_missing, auth_headers=auth_headers)
             selected = engine.selected
             scan_id = await asyncio.to_thread(store.start_scan_run, target, selected, profile, user_id)
         except Exception:
-            self._active[key] = max(0, self._active[key] - 1)
-            self._global_active = max(0, self._global_active - 1)
+            shared_state.release(reservation)
             raise
         job = Job(scan_id, len(selected), engine=engine)
+        job.reservation = reservation
         self.jobs[scan_id] = job
         loop = asyncio.get_running_loop()
         # keep a strong reference so the background task isn't garbage-collected
-        task = asyncio.create_task(self._run(job, engine, target, loop, key))
+        task = asyncio.create_task(self._run(job, engine, target, loop))
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
         return scan_id
@@ -111,7 +107,7 @@ class ScanManager:
             job.engine.cancel()
         return True
 
-    async def _run(self, job: Job, engine: Engine, target: str, loop: asyncio.AbstractEventLoop, key: str = "anon") -> None:
+    async def _run(self, job: Job, engine: Engine, target: str, loop: asyncio.AbstractEventLoop) -> None:
         t0 = time.monotonic()
 
         def on_start(name):  # worker thread — module just got a slot
@@ -149,8 +145,8 @@ class ScanManager:
             delta = await asyncio.to_thread(store.apply_delta, job.scan_id)
         except Exception:  # noqa: BLE001
             pass
-        self._active[key] = max(0, self._active[key] - 1)
-        self._global_active = max(0, self._global_active - 1)
+        shared_state.release(job.reservation)
+        job.reservation = None
         job.status = status
         self._broadcast(job, {"type": "done", "scan_id": job.scan_id, "status": status, "delta": delta})
         job.done.set()
