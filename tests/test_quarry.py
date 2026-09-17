@@ -117,3 +117,43 @@ def test_job_scoped_to_owner(qserver):
     okey = httpx.post(f"{base}/auth/api-keys", headers={"Authorization": f"Bearer {other['access_token']}"},
                       json={"name": "o"}).json()["api_key"]
     assert httpx.get(f"{base}/v1/quarry/scan/{job_id}", headers=_bearer(okey)).status_code == 404
+
+
+# ---- _transform unit tests (fast, no server) --------------------------
+def test_transform_dedup_confidence_and_key():
+    from infiltr.api.quarry import _transform
+    scan = {"target": "http://t.example.com", "results": [
+        {"findings": [
+            # same issue on two URLs -> one finding, occurrences=2
+            {"type": "exposure", "name": "/.git/config", "value": "HTTP 200", "severity": "high",
+             "module": "secrets", "metadata": {"url": "http://t.example.com/.git/config"}},
+            {"type": "exposure", "name": "/.git/config", "value": "HTTP 200", "severity": "high",
+             "module": "secrets", "metadata": {"url": "http://t.example.com/.git/config"}},
+            # an informational fingerprint -> low confidence
+            {"type": "technology", "name": "nginx", "value": "1.18", "severity": "info",
+             "module": "whatweb", "metadata": {}},
+        ]}
+    ]}
+    out = _transform(scan, "http://t.example.com")
+    assert set(out.keys()) == {"target", "assets", "findings"}
+    git = [f for f in out["findings"] if f["vulnClass"] == "sensitive-file-exposure"]
+    assert len(git) == 1                                   # deduped
+    g = git[0]
+    assert g["key"] == "sensitive-file-exposure:t.example.com:/.git/config"
+    assert g["evidence"]["occurrences"] == 2
+    assert g["confidence"] >= 0.8                          # verified exposure clears the gate
+    assert "request" in g["evidence"] and "response" in g["evidence"]
+    tech = [f for f in out["findings"] if f["vulnClass"] == "tech-fingerprint"][0]
+    assert tech["confidence"] < 0.5                        # info stays below the gate
+    # sorted strongest-first
+    assert out["findings"][0]["severity"] == "HIGH"
+
+
+def test_transform_metadata_confidence_override():
+    from infiltr.api.quarry import _transform
+    scan = {"results": [{"findings": [
+        {"type": "secret", "name": "aws-key", "value": "AKIA...", "severity": "high",
+         "module": "secrets", "metadata": {"url": "http://h/app.js", "confidence": 0.95}},
+    ]}]}
+    out = _transform(scan, "http://h")
+    assert out["findings"][0]["confidence"] == 0.95

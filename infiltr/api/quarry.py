@@ -139,16 +139,76 @@ def _vuln_class(f: dict) -> str:
     return _VULN_CLASS.get(f.get("type", ""), _slug(f.get("type", "finding")))
 
 
+def _evidence_url(f: dict) -> str:
+    meta = f.get("metadata") or {}
+    return meta.get("matched_at") or meta.get("url") or (
+        f.get("value") if str(f.get("value", "")).startswith("http") else "")
+
+
 def _evidence(f: dict) -> dict:
     meta = f.get("metadata") or {}
-    url = meta.get("matched_at") or meta.get("url") or (f.get("value") if str(f.get("value", "")).startswith("http") else "")
     return {
-        "url": url,
+        "url": _evidence_url(f),
         "detail": f.get("detail") or f.get("value") or "",
         "module": f.get("module"),
         "name": f.get("name"),
+        # raw request/response when the module captured them (nuclei, zap); else empty
+        "request": meta.get("request") or meta.get("curl_command") or "",
+        "response": meta.get("response") or "",
         "metadata": meta,
     }
+
+
+# per-finding-type confidence that the issue is real (0..1). A module may override
+# with metadata.confidence (0..1). Drives Quarry's confidence>=0.8 quality gate.
+_CONFIDENCE = {
+    "vuln": 0.9,          # nuclei positive template match
+    "exposure": 0.9,      # sensitive file returned HTTP 200 (verified fetch)
+    "xss": 0.85,          # dalfox confirmed reflection/execution
+    "cors": 0.85,         # ACAO reflection observed
+    "zap_alert": 0.7,     # active/passive alert, confidence varies (see per-risk below)
+    "secret": 0.7,        # regex match in served JS — can false-positive
+    "smb_share": 0.8, "smb_user": 0.8, "smb_group": 0.8,
+    "wp_version": 0.6, "wp_plugin": 0.6, "wp_user": 0.6, "dbms": 0.6, "vuln_hint": 0.5,
+    # informational / fingerprint types Quarry hides by default
+    "technology": 0.3, "title": 0.3, "http": 0.3, "header": 0.3, "missing_header": 0.4,
+    "jslib": 0.4, "open_port": 0.4, "os": 0.4, "endpoint": 0.3, "path": 0.4,
+    "certificate": 0.5, "tls": 0.5, "tls_protocol": 0.6, "tls_cipher": 0.6,
+    "waf": 0.5, "domain": 0.4, "note": 0.2, "screenshot": 0.3, "finding": 0.5,
+}
+
+
+def _confidence(f: dict) -> float:
+    meta = f.get("metadata") or {}
+    if isinstance(meta.get("confidence"), (int, float)):
+        return max(0.0, min(1.0, float(meta["confidence"])))
+    c = _CONFIDENCE.get(f.get("type", ""), 0.5)
+    # a CRITICAL/HIGH finding that's only a hint shouldn't read as fully confirmed;
+    # a verified finding at INFO stays low. Keep the type-based value, lightly nudged.
+    if f.get("severity") in ("critical", "high") and c >= 0.7:
+        c = min(1.0, c + 0.05)
+    return round(c, 2)
+
+
+def _location(f: dict, host: str) -> str:
+    """Stable, host-independent location for the dedup key: path (+ param)."""
+    meta = f.get("metadata") or {}
+    url = _evidence_url(f)
+    loc = ""
+    if url:
+        try:
+            loc = urlparse(url).path or "/"
+        except ValueError:
+            loc = ""
+    param = meta.get("param") or meta.get("parameter")
+    if param:
+        loc = f"{loc}?{param}"
+    return loc or _slug(f.get("name") or f.get("type") or "")
+
+
+def _finding_key(f: dict, vuln_class: str, host: str) -> str:
+    """vulnClass:host:location — repeat scans dedup instead of piling up."""
+    return f"{vuln_class}:{host.lower()}:{_location(f, host)}"
 
 
 def _same_host(url: str, host: str) -> bool:
@@ -158,23 +218,42 @@ def _same_host(url: str, host: str) -> bool:
         return False
 
 
+_SEV_RANK = {"INFO": 0, "LOW": 1, "MEDIUM": 2, "HIGH": 3, "CRITICAL": 4}
+
+
 def _transform(scan: dict, target: str) -> dict:
     host = hostname(target)
     assets = {base_url(target)}
-    findings = []
+    by_key: dict[str, dict] = {}
     for r in scan.get("results", []):
         for f in r.get("findings", []):
             if f.get("false_positive"):
                 continue
-            findings.append({
+            vuln_class = _vuln_class(f)
+            severity = _SEV.get(f.get("severity", "info"), "INFO")
+            key = _finding_key(f, vuln_class, host)
+            item = {
+                "key": key,
                 "title": (f.get("name") or f.get("type") or "finding") + (f" — {f['value']}" if f.get("value") else ""),
-                "vulnClass": _vuln_class(f),
-                "severity": _SEV.get(f.get("severity", "info"), "INFO"),
+                "vulnClass": vuln_class,
+                "severity": severity,
+                "confidence": _confidence(f),
                 "evidence": _evidence(f),
-            })
-            ev_url = (f.get("metadata") or {}).get("matched_at") or (f.get("value") if str(f.get("value", "")).startswith("http") else "")
+            }
+            prev = by_key.get(key)
+            if prev is None:
+                by_key[key] = item
+            else:
+                # same real issue seen again: keep the strongest, count the rest
+                prev["evidence"]["occurrences"] = prev["evidence"].get("occurrences", 1) + 1
+                if (_SEV_RANK[severity], item["confidence"]) > (_SEV_RANK[prev["severity"]], prev["confidence"]):
+                    item["evidence"]["occurrences"] = prev["evidence"]["occurrences"]
+                    by_key[key] = item
+            ev_url = _evidence_url(f)
             if ev_url and _same_host(ev_url, host):
                 assets.add(ev_url.rstrip("/"))
+    findings = sorted(by_key.values(),
+                      key=lambda x: (-_SEV_RANK[x["severity"]], -x["confidence"], x["key"]))
     return {"target": target, "assets": sorted(assets), "findings": findings}
 
 
