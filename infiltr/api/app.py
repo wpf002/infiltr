@@ -190,6 +190,22 @@ def health() -> dict[str, str]:
     return {"status": "ok", "service": "infiltr"}
 
 
+@app.get("/metrics")
+def metrics_endpoint(request: Request) -> Response:
+    """Prometheus metrics (aggregates only, no per-user data). Optionally gate with
+    INFILTR_METRICS_TOKEN; disable entirely with INFILTR_METRICS=0."""
+    from . import metrics as _m
+    if not _m.METRICS_ENABLED:
+        raise HTTPException(404, "metrics disabled")
+    if _m.METRICS_TOKEN:
+        auth = request.headers.get("authorization", "")
+        tok = (auth.split(" ", 1)[1].strip() if auth.lower().startswith("bearer ")
+               else request.headers.get("x-metrics-token", ""))
+        if tok != _m.METRICS_TOKEN:
+            raise HTTPException(401, "metrics token required")
+    return Response(_m.render(), media_type="text/plain; version=0.0.4; charset=utf-8")
+
+
 @app.get("/modules")
 def modules() -> list[dict[str, Any]]:
     return module_status()

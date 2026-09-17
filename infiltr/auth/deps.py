@@ -67,6 +67,8 @@ def rate_limit(user: Optional[dict] = Depends(current_user)) -> None:
         return
     key = str(user["id"]) if user else "anon"
     if not shared_state.allow_request(f"user:{key}", RATE_LIMIT, RATE_WINDOW):
+        from ..api import metrics
+        metrics.record_rate_limited()
         raise HTTPException(429, "rate limit exceeded")
 
 
@@ -91,4 +93,6 @@ def auth_rate_limit(request: Request) -> None:
     Cross-node via Redis when REDIS_URL is set, else in-process per replica."""
     ip = _client_ip(request)
     if not shared_state.allow_request(f"auth:{ip}", AUTH_RATE_LIMIT, AUTH_RATE_WINDOW):
+        from ..api import metrics
+        metrics.record_rate_limited()
         raise HTTPException(429, "too many attempts; slow down")

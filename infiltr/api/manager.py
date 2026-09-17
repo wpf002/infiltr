@@ -13,6 +13,7 @@ from typing import Any
 from .. import store
 from .. import safety
 from .. import shared_state
+from . import metrics
 from ..engine import Engine
 
 MAX_CONCURRENT = int(os.environ.get("INFILTR_MAX_CONCURRENT", "3"))
@@ -73,6 +74,7 @@ class ScanManager:
             raise
         job = Job(scan_id, len(selected), engine=engine)
         job.reservation = reservation
+        metrics.record_scan_started()
         self.jobs[scan_id] = job
         loop = asyncio.get_running_loop()
         # keep a strong reference so the background task isn't garbage-collected
@@ -138,7 +140,9 @@ class ScanManager:
             status = "error"
             self._broadcast(job, {"type": "error", "scan_id": job.scan_id, "error": str(exc)})
 
-        await asyncio.to_thread(store.finalize_scan_run, job.scan_id, time.monotonic() - t0, status)
+        duration = time.monotonic() - t0
+        await asyncio.to_thread(store.finalize_scan_run, job.scan_id, duration, status)
+        metrics.record_scan_finished(status, duration)
         # delta detection: flag findings new since the previous scan of this target
         delta = {}
         try:
