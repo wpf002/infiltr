@@ -14,6 +14,7 @@ class FfufWrapper(BaseWrapper):
     CATEGORY = "web"
     TOOL_BIN = "ffuf"
     DESCRIPTION = "Fast web fuzzer for content/parameter discovery"
+    HEADER_FLAG = "-H"
     DEFAULT_TIMEOUT = 300
 
     def build_command(self, target: str) -> list[str]:

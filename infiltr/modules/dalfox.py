@@ -15,6 +15,7 @@ class DalfoxWrapper(BaseWrapper):
     TOOL_BIN = "dalfox"
     DESCRIPTION = "Parameter analysis + XSS scanning"
     VERSION = "1.0"
+    HEADER_FLAG = "-H"
     DEFAULT_TIMEOUT = 600
 
     def build_command(self, target: str) -> list[str]:

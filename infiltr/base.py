@@ -89,6 +89,7 @@ class BaseWrapper:
     DESCRIPTION: str = ""
     VERSION: str = "1.0"
     OPTIONS_SCHEMA: dict[str, Any] = {}   # {option: {"type","default","help"}}
+    HEADER_FLAG: str | None = None        # set to "-H" if the tool takes repeated header flags
     DEFAULT_TIMEOUT: int = 300
 
     def __init__(self, options: dict[str, Any] | None = None):
@@ -166,6 +167,18 @@ class BaseWrapper:
         """Data to feed the tool on stdin (e.g. httpx/dnsx read targets there)."""
         return None
 
+    def auth_headers(self) -> dict:
+        """Headers for authenticated scanning (Cookie/Authorization/etc), or {}."""
+        h = self.options.get("auth_headers") or {}
+        return h if isinstance(h, dict) else {}
+
+    def header_args(self, flag: str = "-H") -> list[str]:
+        """argv for tools that take repeated '-H \"Name: value\"' header flags."""
+        out: list[str] = []
+        for k, v in self.auth_headers().items():
+            out += [flag, f"{k}: {v}"]
+        return out
+
     def summarize(self, findings: list[Finding]) -> str:
         if not findings:
             return "No findings."
@@ -201,6 +214,8 @@ class BaseWrapper:
             result.finished_at = datetime.now(timezone.utc).isoformat()
             return result
 
+        if self.HEADER_FLAG and self.auth_headers():
+            cmd = cmd + self.header_args(self.HEADER_FLAG)   # authenticated scan
         result.command = " ".join(cmd)
         timeout = int(self.options.get("timeout", self.DEFAULT_TIMEOUT))
         try:

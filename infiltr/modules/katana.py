@@ -13,6 +13,7 @@ class KatanaWrapper(BaseWrapper):
     TOOL_BIN = "katana"
     DESCRIPTION = "Crawl the target for endpoints, URLs, and parameters"
     VERSION = "1.0"
+    HEADER_FLAG = "-H"
     OPTIONS_SCHEMA = {
         "depth": {"type": "int", "default": 2, "help": "crawl depth"},
         "js_crawl": {"type": "bool", "default": True, "help": "parse JS for endpoints"},

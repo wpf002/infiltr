@@ -14,6 +14,7 @@ class FeroxbusterWrapper(BaseWrapper):
     CATEGORY = "web"
     TOOL_BIN = "feroxbuster"
     DESCRIPTION = "Recursive directory / file brute force"
+    HEADER_FLAG = "-H"
     DEFAULT_TIMEOUT = 300
 
     def build_command(self, target: str) -> list[str]:

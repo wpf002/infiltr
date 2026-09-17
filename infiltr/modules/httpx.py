@@ -18,6 +18,7 @@ class HttpxWrapper(BaseWrapper):
     TOOL_BIN = "httpx-toolkit"
     DESCRIPTION = "HTTP probe: status, title, tech, server, TLS"
     VERSION = "1.0"
+    HEADER_FLAG = "-H"
     DEFAULT_TIMEOUT = 180
 
     @classmethod

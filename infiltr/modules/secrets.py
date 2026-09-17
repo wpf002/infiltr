@@ -50,18 +50,18 @@ class SecretsWrapper(NativeWrapper):
         findings: list[Finding] = []
 
         for path, (sev, desc) in _EXPOSED_FILES.items():
-            r = fetch(root + path, timeout=timeout)
+            r = fetch(root + path, timeout=timeout, headers=self.auth_headers())
             if r["status"] == 200 and r["body"] and not _looks_like_html_error(r["body"]):
                 findings.append(Finding(type="exposure", name=path, value=f"HTTP 200",
                                         detail=desc, severity=sev, metadata={"url": r["url"]}))
 
         # fetch the homepage, scan it + a bounded number of linked scripts for secrets
-        home = fetch(root, timeout=timeout)
+        home = fetch(root, timeout=timeout, headers=self.auth_headers())
         docs = [(home["url"], home["body"])]
         for src in _SCRIPT_SRC.findall(home["body"])[:12]:
             js_url = _abs(root, src)
             if js_url:
-                jr = fetch(js_url, timeout=timeout)
+                jr = fetch(js_url, timeout=timeout, headers=self.auth_headers())
                 if jr["status"] == 200:
                     docs.append((jr["url"], jr["body"]))
 

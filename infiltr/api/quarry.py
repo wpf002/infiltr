@@ -39,7 +39,7 @@ QUARRY_WORKERS = int(os.environ.get("INFILTR_QUARRY_WORKERS", "3"))
 _TIER1 = ["httpx", "whatweb", "nmap", "naabu", "nuclei", "sslscan", "testssl",
           "wafw00f", "headers", "secrets", "jslibs", "katana", "gowitness", "enum4linux"]
 # Tier 2: + low-impact active (content discovery, XSS detection, web-server checks).
-_TIER2_EXTRA = ["dalfox", "gobuster", "ffuf", "feroxbuster", "wfuzz", "nikto"]
+_TIER2_EXTRA = ["dalfox", "gobuster", "ffuf", "feroxbuster", "wfuzz", "nikto", "zap"]
 # Never delegated: scope-expanding recon or intrusive/state-changing tools.
 _NEVER = {"hydra", "metasploit", "sqlmap", "masscan", "subfinder", "theharvester", "dnsx"}
 
@@ -115,6 +115,7 @@ _VULN_CLASS = {
     "jslib": "js-library", "missing_header": "missing-security-header", "cors": "cors-misconfiguration",
     "screenshot": "screenshot-evidence", "note": "scan-note",
     "smb_share": "smb-share", "smb_user": "smb-user", "smb_group": "smb-group", "domain": "smb-domain",
+    "zap_alert": "zap-alert",
 }
 
 

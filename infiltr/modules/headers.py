@@ -25,7 +25,7 @@ class HeadersWrapper(NativeWrapper):
 
     def collect(self, target: str) -> list[Finding]:
         url = base_url(target)
-        r = fetch(url, timeout=int(self.options.get("timeout", 20)))
+        r = fetch(url, timeout=int(self.options.get("timeout", 20)), headers=self.auth_headers())
         if r["status"] == 0:
             return [Finding(type="note", name="unreachable", value=r.get("error", "")[:120], severity=SEV_INFO)]
         h = r["headers"]
@@ -47,7 +47,7 @@ class HeadersWrapper(NativeWrapper):
                                         metadata={"url": r["url"]}))
 
         # CORS: reflect an arbitrary Origin and check the response
-        probe = fetch(url, timeout=15, headers={"Origin": "https://evil.example.com"})
+        probe = fetch(url, timeout=15, headers={**self.auth_headers(), "Origin": "https://evil.example.com"})
         aco = probe["headers"].get("access-control-allow-origin", "")
         acc = probe["headers"].get("access-control-allow-credentials", "").lower()
         if aco == "https://evil.example.com" or aco == "*":

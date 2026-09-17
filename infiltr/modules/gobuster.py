@@ -15,6 +15,7 @@ class GobusterWrapper(BaseWrapper):
     CATEGORY = "web"
     TOOL_BIN = "gobuster"
     DESCRIPTION = "Directory/file brute forcing"
+    HEADER_FLAG = "-H"
     DEFAULT_TIMEOUT = 300
 
     def build_command(self, target: str) -> list[str]:

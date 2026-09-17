@@ -133,6 +133,14 @@ def ready() -> Response:
 
 
 # ---- schemas ----------------------------------------------------------
+class AuthSpec(BaseModel):
+    """Credentials for an authenticated scan — injected as HTTP headers/cookie so
+    the tools scan behind login."""
+    headers: Optional[dict[str, str]] = None
+    cookie: Optional[str] = None
+    bearer: Optional[str] = None
+
+
 class ScanRequest(BaseModel):
     target: str = Field(..., examples=["http://localhost:8080"])
     modules: Optional[list[str]] = None
@@ -140,8 +148,21 @@ class ScanRequest(BaseModel):
     options: Optional[dict[str, Any]] = None
     skip_missing: bool = False
     workers: int = Field(6, ge=1, le=8)
+    auth: Optional[AuthSpec] = None
     # the caller asserts they are authorized to scan this target (required in prod)
     authorization_attestation: bool = False
+
+
+def _build_auth_headers(auth: Optional[AuthSpec]) -> dict:
+    if not auth:
+        return {}
+    h = dict(auth.headers or {})
+    if auth.cookie:
+        h["Cookie"] = auth.cookie
+    if auth.bearer:
+        h["Authorization"] = f"Bearer {auth.bearer}"
+    # drop anything that could inject a new argv flag as a header NAME
+    return {k: v for k, v in h.items() if k and not str(k).startswith("-") and ":" not in str(k)}
 
 
 def _require_operator(user):
@@ -225,6 +246,7 @@ async def start_scan(req: ScanRequest, request: Request,
         scan_id = await manager.start_scan(
             target=req.target, modules=selected, options=options,
             profile=req.profile, user_id=uid, workers=req.workers, skip_missing=req.skip_missing,
+            auth_headers=_build_auth_headers(req.auth),
         )
     except ScopeError as exc:
         auth_service.audit("scope.rejected", actor=(user or {}).get("email", "anon"),

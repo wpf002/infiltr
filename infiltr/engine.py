@@ -97,9 +97,11 @@ class Engine:
         options: dict[str, dict[str, Any]] | None = None,
         max_workers: int = 4,
         skip_missing: bool = False,
+        auth_headers: dict | None = None,
     ):
         self.registry = discover()
         self.options = options or {}
+        self.auth_headers = auth_headers or {}
         self.max_workers = max_workers
         self.skip_missing = skip_missing
         if modules:
@@ -123,6 +125,8 @@ class Engine:
     def _instantiate(self, name: str) -> BaseWrapper:
         cls = self.registry[name]
         opts = config.for_module(name, self.options.get(name))
+        if self.auth_headers:
+            opts["auth_headers"] = self.auth_headers
         return cls(options=opts)
 
     def run(

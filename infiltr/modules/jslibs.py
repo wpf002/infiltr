@@ -41,7 +41,7 @@ class JsLibsWrapper(NativeWrapper):
 
     def collect(self, target: str) -> list[Finding]:
         root = base_url(target)
-        home = fetch(root, timeout=int(self.options.get("timeout", 15)))
+        home = fetch(root, timeout=int(self.options.get("timeout", 15)), headers=self.auth_headers())
         libs: dict[str, str] = {}
 
         for src in _SCRIPT_SRC.findall(home["body"]):

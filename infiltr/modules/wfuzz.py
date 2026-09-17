@@ -17,6 +17,7 @@ class WfuzzWrapper(BaseWrapper):
     CATEGORY = "web"
     TOOL_BIN = "wfuzz"
     DESCRIPTION = "Web application fuzzer"
+    HEADER_FLAG = "-H"
     DEFAULT_TIMEOUT = 300
 
     def build_command(self, target: str) -> list[str]:

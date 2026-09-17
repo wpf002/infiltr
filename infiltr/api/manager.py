@@ -53,6 +53,7 @@ class ScanManager:
         user_id: int | None = None,
         workers: int = 4,
         skip_missing: bool = False,
+        auth_headers: dict | None = None,
     ) -> int:
         # hardening: sanitize + enforce scope before anything is created
         target = safety.check_scope(target)
@@ -67,7 +68,8 @@ class ScanManager:
         self._active[key] += 1
         self._global_active += 1
         try:
-            engine = Engine(modules=modules, options=options, max_workers=workers, skip_missing=skip_missing)
+            engine = Engine(modules=modules, options=options, max_workers=workers,
+                            skip_missing=skip_missing, auth_headers=auth_headers)
             selected = engine.selected
             scan_id = await asyncio.to_thread(store.start_scan_run, target, selected, profile, user_id)
         except Exception:

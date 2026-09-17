@@ -12,7 +12,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       theharvester seclists git python3 python3-pip python3-venv ca-certificates \
       nuclei httpx-toolkit subfinder dnsx sslscan testssl.sh wafw00f \
       wpscan masscan metasploit-framework \
-      katana naabu gowitness enum4linux-ng \
+      katana naabu gowitness enum4linux-ng zaproxy \
     && rm -rf /var/lib/apt/lists/*
 
 # dalfox (Go tool, not in the Kali repo) — build then drop the Go toolchain

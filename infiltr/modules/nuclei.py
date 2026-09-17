@@ -35,6 +35,7 @@ class NucleiWrapper(BaseWrapper):
     TOOL_BIN = "nuclei"
     DESCRIPTION = "Templated vulnerability / CVE / misconfig scanner"
     VERSION = "1.0"
+    HEADER_FLAG = "-H"
     OPTIONS_SCHEMA = {
         "severity": {"type": "string", "default": "low,medium,high,critical",
                      "help": "comma severities to report (info,low,medium,high,critical)"},
