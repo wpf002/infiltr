@@ -176,5 +176,34 @@ def test_scope_rejection(server):
     assert r2.status_code == 403
 
 
+def test_burst_concurrency_stays_consistent(server):
+    """Fire a burst of scans: no crash, responses are 200/429, DB stays consistent."""
+    import concurrent.futures as cf
+
+    def start():
+        try:
+            r = httpx.post(f"{server}/scan", json={"target": "http://localhost:8080", "modules": ["nmap"]}, timeout=20)
+            return r.status_code
+        except Exception:  # noqa: BLE001 — a timeout is a failed start, not a crash
+            return "timeout"
+
+    with cf.ThreadPoolExecutor(max_workers=12) as pool:
+        codes = list(pool.map(lambda _: start(), range(12)))
+
+    assert set(codes) <= {200, 429, "timeout"}, codes
+    started = codes.count(200)
+    assert started >= 1
+    # server survived the burst
+    assert httpx.get(f"{server}/health").json()["status"] == "ok"
+
+    # every persisted scan reaches a terminal state (no stuck 'running')
+    for _ in range(150):
+        scans = httpx.get(f"{server}/scans?limit=100").json()
+        if scans and all(s["status"] != "running" for s in scans):
+            break
+        time.sleep(0.1)
+    assert scans and all(s["status"] in ("completed", "error", "cancelled") for s in scans)
+
+
 def test_unknown_scan_404(server):
     assert httpx.get(f"{server}/scan/99999").status_code == 404

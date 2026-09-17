@@ -56,15 +56,20 @@ class ScanManager:
         target = safety.check_scope(target)
 
         key = str(user_id) if user_id is not None else "anon"
+        # check-and-reserve a slot atomically (no await between check and increment,
+        # so no two coroutines can both pass the cap)
         if self._active[key] >= MAX_CONCURRENT:
             raise ConcurrencyError(f"max {MAX_CONCURRENT} concurrent scans reached")
-
-        engine = Engine(modules=modules, options=options, max_workers=workers, skip_missing=skip_missing)
-        selected = engine.selected
-        scan_id = await asyncio.to_thread(store.start_scan_run, target, selected, profile, user_id)
+        self._active[key] += 1
+        try:
+            engine = Engine(modules=modules, options=options, max_workers=workers, skip_missing=skip_missing)
+            selected = engine.selected
+            scan_id = await asyncio.to_thread(store.start_scan_run, target, selected, profile, user_id)
+        except Exception:
+            self._active[key] = max(0, self._active[key] - 1)
+            raise
         job = Job(scan_id, len(selected), engine=engine)
         self.jobs[scan_id] = job
-        self._active[key] += 1
         loop = asyncio.get_running_loop()
         # keep a strong reference so the background task isn't garbage-collected
         task = asyncio.create_task(self._run(job, engine, target, loop, key))
@@ -138,8 +143,11 @@ class ScanManager:
         """Async generator of events for a scan; replays history then streams live."""
         job = self.jobs.get(scan_id)
         if job is None:
-            # scan already finished (or unknown) — nothing live to stream
-            yield {"type": "done", "scan_id": scan_id, "status": "completed"}
+            # Not running on this replica. Either it finished, or it's running on
+            # another node (multi-tenant/multi-replica). Reconstruct progress from
+            # the shared DB so live updates work regardless of which node serves SSE.
+            async for evt in self._db_progress(scan_id):
+                yield evt
             return
         q: asyncio.Queue = asyncio.Queue(maxsize=1000)
         # replay what already happened so late subscribers stay consistent
@@ -159,6 +167,26 @@ class ScanManager:
                     return
         finally:
             job.subscribers.discard(q)
+
+    async def _db_progress(self, scan_id: int):
+        """Cross-node/late SSE: poll the shared DB and emit module + done events."""
+        seen: set[str] = set()
+        for _ in range(4000):  # ~1h ceiling at 0.9s
+            scan = await asyncio.to_thread(store.get_scan, scan_id)
+            if scan is None:
+                yield {"type": "done", "scan_id": scan_id, "status": "unknown"}
+                return
+            for r in scan.get("results", []):
+                if r["module"] not in seen:
+                    seen.add(r["module"])
+                    yield {"type": "module", "scan_id": scan_id,
+                           "completed": len(seen), "total": scan.get("module_count", 0),
+                           "result": r}
+            if scan.get("status") != "running":
+                yield {"type": "done", "scan_id": scan_id, "status": scan["status"]}
+                return
+            await asyncio.sleep(0.9)
+        yield {"type": "done", "scan_id": scan_id, "status": "timeout"}
 
 
 manager = ScanManager()

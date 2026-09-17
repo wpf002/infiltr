@@ -3,6 +3,7 @@
 
 # Phase 2 — persistence
 SQLAlchemy>=2.0
+psycopg[binary]>=3.2   # Postgres driver (multi-tenant / prod)
 
 # Phase 3 — API
 fastapi>=0.110

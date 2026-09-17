@@ -136,6 +136,22 @@ def test_api_key_auth_and_audit(auth_server):
     assert "user.register" in actions and "scan.start" in actions
 
 
+def test_admin_creates_user(auth_server):
+    admin = httpx.post(f"{auth_server}/auth/register", json={"email": "admin@x.com", "password": "pw123456"}).json()
+    tok = admin["access_token"]
+    # admin onboards an operator (the multi-tenant path when self-registration is off)
+    created = httpx.post(f"{auth_server}/admin/users", headers=_auth(tok),
+                         json={"email": "op2@x.com", "password": "pw123456", "role": "operator"})
+    assert created.status_code == 200, created.text
+    assert created.json()["role"] == "operator"
+    # the new user can log in
+    assert httpx.post(f"{auth_server}/auth/login", json={"email": "op2@x.com", "password": "pw123456"}).status_code == 200
+    # a non-admin cannot create users
+    op = httpx.post(f"{auth_server}/auth/register", json={"email": "op3@x.com", "password": "pw123456"}).json()
+    assert httpx.post(f"{auth_server}/admin/users", headers=_auth(op["access_token"]),
+                      json={"email": "x@x.com", "password": "pw123456"}).status_code == 403
+
+
 def test_refresh_rotation(auth_server):
     reg = httpx.post(f"{auth_server}/auth/register", json={"email": "a@x.com", "password": "pw123456"}).json()
     new = httpx.post(f"{auth_server}/auth/refresh", json={"refresh_token": reg["refresh_token"]})

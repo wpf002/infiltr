@@ -45,13 +45,29 @@ app.add_middleware(
 
 
 @app.middleware("http")
-async def no_cache_frontend(request, call_next):
-    """Revalidate the console assets so UI changes always take (no stale JS/CSS)."""
+async def security_and_cache(request, call_next):
+    """Security headers on every response; no-store on console assets."""
     response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "no-referrer")
+    response.headers.setdefault("Cross-Origin-Opener-Policy", "same-origin")
     path = request.url.path
     if path == "/" or path.endswith((".html", ".js", ".css")):
         response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
     return response
+
+
+@app.on_event("startup")
+async def _prod_safety_checks() -> None:
+    """Fail fast on an insecure public config."""
+    from ..auth import security as sec
+    if AUTH_ENABLED and not os.environ.get("INFILTR_SECRET_KEY"):
+        raise RuntimeError(
+            "INFILTR_AUTH=1 requires a stable INFILTR_SECRET_KEY (an ephemeral key "
+            "invalidates all tokens on restart). Set INFILTR_SECRET_KEY."
+        )
+    _ = sec  # keep import for side-effect parity
 
 
 # ---- schemas ----------------------------------------------------------
@@ -261,9 +277,25 @@ def revoke_api_key(key_id: int, user=Depends(require_user)) -> dict[str, Any]:
 
 
 # ---- admin ------------------------------------------------------------
+class AdminUserBody(BaseModel):
+    email: str
+    password: str = Field(..., min_length=6)
+    role: str = "operator"
+
+
 @app.get("/admin/users")
 def admin_users(user=Depends(require_role("admin"))) -> list[dict[str, Any]]:
     return auth_service.list_users()
+
+
+@app.post("/admin/users")
+def admin_create_user(body: AdminUserBody, user=Depends(require_role("admin"))) -> dict[str, Any]:
+    try:
+        created = auth_service.create_user(body.email, body.password, role=body.role)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    auth_service.audit("user.create", actor=user["email"], user_id=user["id"], detail=created["email"])
+    return created
 
 
 @app.put("/admin/users/{user_id}")

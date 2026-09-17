@@ -43,7 +43,20 @@ class MasscanWrapper(BaseWrapper):
                 Finding(type="open_port", name=f"{port}/{proto}", value="open",
                         detail=ip, severity=SEV_LOW, metadata={"port": int(port), "protocol": proto, "ip": ip})
             )
+        if not findings:
+            blob = (stderr + stdout).lower()
+            if "permission denied" in blob or "failed" in blob or "raw socket" in blob:
+                findings.append(
+                    Finding(type="note", name="masscan unavailable",
+                            value="raw sockets blocked",
+                            detail="masscan needs CAP_NET_RAW / a Linux host with raw-socket "
+                                   "access; use nmap for port scanning in this environment.",
+                            severity=SEV_INFO)
+                )
         return findings
 
     def summarize(self, findings: list[Finding]) -> str:
-        return f"{len(findings)} open port(s)."
+        ports = [f for f in findings if f.type == "open_port"]
+        if not ports and any(f.type == "note" for f in findings):
+            return "masscan unavailable (no raw-socket access)."
+        return f"{len(ports)} open port(s)."

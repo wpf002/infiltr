@@ -1,0 +1,54 @@
+# Hardened multi-tenant deploy: Postgres + enforced auth + scope guard.
+#   export INFILTR_SECRET_KEY="$(python3 -c 'import secrets;print(secrets.token_urlsafe(48))')"
+#   export INFILTR_ALLOWLIST="*.yourscope.com,10.0.0.0/8"   # STRONGLY recommended
+#   docker compose -f docker-compose.saas.yml up -d --build
+#
+# Scale the API horizontally: `docker compose -f docker-compose.saas.yml up -d --scale infiltr=3`
+# (all replicas share Postgres; SSE progress is DB-backed so any replica can serve it).
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: infiltr
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}"
+      POSTGRES_DB: infiltr
+    volumes:
+      - infiltr-pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U infiltr"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+    networks: [infiltr]
+
+  infiltr:
+    build: .
+    image: infiltr:latest
+    environment:
+      INFILTR_AUTH: "1"                       # enforced login / API keys
+      INFILTR_OPEN_REGISTRATION: "0"          # only the bootstrap admin self-registers
+      INFILTR_SCHEDULER: "1"
+      INFILTR_SECRET_KEY: "${INFILTR_SECRET_KEY:?set INFILTR_SECRET_KEY}"
+      INFILTR_MAX_CONCURRENT: "${INFILTR_MAX_CONCURRENT:-3}"
+      INFILTR_RATE_LIMIT: "${INFILTR_RATE_LIMIT:-60}"
+      INFILTR_ALLOWLIST: "${INFILTR_ALLOWLIST:-}"
+      INFILTR_BLOCKLIST: "${INFILTR_BLOCKLIST:-}"
+      DATABASE_URL: "postgresql+psycopg://infiltr:${POSTGRES_PASSWORD}@postgres:5432/infiltr"
+    ports:
+      - "${PORT:-8000}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+    restart: unless-stopped
+    networks: [infiltr]
+
+volumes:
+  infiltr-pg:
+
+networks:
+  infiltr:
+    driver: bridge

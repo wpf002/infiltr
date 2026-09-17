@@ -149,3 +149,20 @@ docker compose -f docker-compose.prod.yml up -d       # API + console on :8000
 - **TLS** — set `INFILTR_TLS_CERT` / `INFILTR_TLS_KEY` for HTTPS.
 - **CI** — GitHub Actions runs lint, compile, unit tests, and an nmap integration
   test against a DVWA service container.
+
+## Multi-tenant SaaS (Postgres, enforced auth)
+
+```bash
+export INFILTR_SECRET_KEY="$(python3 -c 'import secrets;print(secrets.token_urlsafe(48))')"
+export POSTGRES_PASSWORD="$(python3 -c 'import secrets;print(secrets.token_urlsafe(24))')"
+export INFILTR_ALLOWLIST="*.yourscope.com,10.0.0.0/8"   # strongly recommended
+docker compose -f docker-compose.saas.yml up -d --build
+# scale the API: docker compose -f docker-compose.saas.yml up -d --scale infiltr=3
+```
+
+- **Postgres** backend with a bounded connection pool (`pool_pre_ping`, recycle); SQLite path uses WAL + busy-timeout for single-node bursts.
+- **Auth enforced** (`INFILTR_AUTH=1`); self-registration locked to the bootstrap admin (`INFILTR_OPEN_REGISTRATION=0`), admins onboard users via `POST /admin/users`.
+- **Per-tenant isolation** — scans, profiles, schedules, reports scoped to `user_id`; per-user concurrency cap + rate limit.
+- **Horizontal scale** — replicas share Postgres; live scan progress is DB-backed so any replica can serve the SSE stream.
+- **Security headers** on every response (nosniff, DENY frame, no-referrer); fails fast if `INFILTR_AUTH=1` without a stable `INFILTR_SECRET_KEY`.
+- `masscan` needs `CAP_NET_RAW` (granted in compose); it reports clearly when raw sockets are unavailable.
