@@ -167,13 +167,22 @@ def finalize_scan_run(scan_id: int, duration: float, status: str = "completed") 
         run.status = status
 
 
-def list_scans(limit: int = 50, user_id: int | None = None) -> list[dict[str, Any]]:
+def list_scans(limit: int = 50, offset: int = 0, user_id: int | None = None) -> list[dict[str, Any]]:
     init_db()
     with session_scope() as s:
-        stmt = select(ScanRun).order_by(desc(ScanRun.id)).limit(limit)
+        stmt = select(ScanRun).order_by(desc(ScanRun.id)).limit(limit).offset(max(0, offset))
         if user_id is not None:
             stmt = stmt.where(ScanRun.user_id == user_id)
         return [r.to_dict() for r in s.scalars(stmt).all()]
+
+
+def count_scans(user_id: int | None = None) -> int:
+    init_db()
+    with session_scope() as s:
+        stmt = select(func.count()).select_from(ScanRun)
+        if user_id is not None:
+            stmt = stmt.where(ScanRun.user_id == user_id)
+        return s.scalar(stmt) or 0
 
 
 def get_scan(scan_id: int, user_id: int | None = None) -> dict[str, Any] | None:

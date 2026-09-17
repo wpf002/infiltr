@@ -75,7 +75,7 @@ def test_scan_lifecycle(server):
     assert scan["status"] == "completed"
     assert scan["module_count"] == 2
 
-    assert any(s["id"] == scan_id for s in httpx.get(f"{server}/scans").json())
+    assert any(s["id"] == scan_id for s in httpx.get(f"{server}/scans").json()["items"])
     assert httpx.delete(f"{server}/scan/{scan_id}").status_code == 200
     assert httpx.get(f"{server}/scan/{scan_id}").status_code == 404
 
@@ -198,7 +198,7 @@ def test_burst_concurrency_stays_consistent(server):
 
     # every persisted scan reaches a terminal state (no stuck 'running')
     for _ in range(150):
-        scans = httpx.get(f"{server}/scans?limit=100").json()
+        scans = httpx.get(f"{server}/scans?limit=100").json()["items"]
         if scans and all(s["status"] != "running" for s in scans):
             break
         time.sleep(0.1)

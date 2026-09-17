@@ -435,8 +435,14 @@ def admin_audit(limit: int = Query(100, ge=1, le=500), user=Depends(require_role
 
 
 @app.get("/scans")
-def list_scans(limit: int = Query(50, ge=1, le=200), user=Depends(current_user)) -> list[dict[str, Any]]:
-    return store.list_scans(limit=limit, user_id=user_id_of(user))
+def list_scans(limit: int = Query(25, ge=1, le=200), offset: int = Query(0, ge=0),
+               user=Depends(current_user)) -> dict[str, Any]:
+    uid = user_id_of(user)
+    return {
+        "items": store.list_scans(limit=limit, offset=offset, user_id=uid),
+        "total": store.count_scans(user_id=uid),
+        "limit": limit, "offset": offset,
+    }
 
 
 @app.get("/scan/{scan_id}")

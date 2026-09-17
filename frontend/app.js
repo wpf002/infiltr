@@ -51,8 +51,8 @@ const LiveApi = {
     return mods.map((m) => ({ name: m.name, category: m.category, desc: m.description, installed: m.installed }));
   },
 
-  async getScans() {
-    const r = await fetch(`${API_BASE}/scans?limit=50`);
+  async getScans(offset = 0, limit = 25) {
+    const r = await fetch(`${API_BASE}/scans?limit=${limit}&offset=${offset}`);
     return r.json();
   },
 
@@ -134,7 +134,7 @@ const SIM_FINDINGS = {
 
 const SimApi = {
   async getModules() { return MODULE_META.map((m) => ({ ...m, installed: true })); },
-  async getScans() { return []; },
+  async getScans() { return { items: [], total: 0, limit: 25, offset: 0 }; },
   async getScan() { return null; },
   async getProfiles() {
     return Object.entries(PROFILE_MODULES).map(([name, mods]) => ({
@@ -441,14 +441,20 @@ async function saveProfile() {
 // ---------------------------------------------------------------------
 // History
 // ---------------------------------------------------------------------
-async function loadHistory() {
-  const scans = await Api.getScans();
+const HISTORY_PAGE = 25;
+
+async function loadHistory(offset = 0) {
+  state.historyOffset = Math.max(0, offset);
+  const res = await Api.getScans(state.historyOffset, HISTORY_PAGE);
+  const items = res.items || [];
+  const total = res.total || 0;
   const body = $("#history-body");
-  if (!scans.length) {
+  if (!items.length) {
     body.innerHTML = `<tr class="empty-row"><td colspan="6">No scans recorded yet.</td></tr>`;
+    renderHistoryPager(0, 0, 0);
     return;
   }
-  body.innerHTML = scans.map((s) => `<tr data-scan="${s.id}">
+  body.innerHTML = items.map((s) => `<tr data-scan="${s.id}">
       <td class="mono">#${s.id}</td>
       <td class="mono">${escapeHtml(s.target)}</td>
       <td class="mono">${(s.started_at || "").slice(0, 19).replace("T", " ")}</td>
@@ -458,6 +464,22 @@ async function loadHistory() {
     </tr>`).join("");
   body.querySelectorAll("tr[data-scan]").forEach((tr) =>
     tr.addEventListener("click", () => loadScan(+tr.dataset.scan)));
+  renderHistoryPager(state.historyOffset, items.length, total);
+}
+
+function renderHistoryPager(offset, count, total) {
+  const el = $("#history-pager");
+  if (!el) return;
+  const from = total ? offset + 1 : 0;
+  const to = offset + count;
+  const hasPrev = offset > 0;
+  const hasNext = to < total;
+  el.innerHTML = `
+    <span class="pager-info">${from}–${to} of ${total}</span>
+    <button class="btn btn-ghost btn-sm" id="hist-prev" ${hasPrev ? "" : "disabled"}>‹ Prev</button>
+    <button class="btn btn-ghost btn-sm" id="hist-next" ${hasNext ? "" : "disabled"}>Next ›</button>`;
+  if (hasPrev) $("#hist-prev").addEventListener("click", () => loadHistory(offset - HISTORY_PAGE));
+  if (hasNext) $("#hist-next").addEventListener("click", () => loadHistory(offset + HISTORY_PAGE));
 }
 
 async function loadScan(id) {

@@ -111,7 +111,7 @@ def test_scans_scoped_per_user(auth_server):
     assert httpx.get(f"{auth_server}/scan/{sid}", headers=_auth(admin["access_token"])).status_code == 200
     # other user does not
     assert httpx.get(f"{auth_server}/scan/{sid}", headers=_auth(op["access_token"])).status_code == 404
-    assert httpx.get(f"{auth_server}/scans", headers=_auth(op["access_token"])).json() == []
+    assert httpx.get(f"{auth_server}/scans", headers=_auth(op["access_token"])).json()["items"] == []
 
 
 def test_rbac_admin_only(auth_server):
