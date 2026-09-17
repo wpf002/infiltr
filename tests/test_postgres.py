@@ -39,7 +39,7 @@ def test_pg_scan_roundtrip_and_delta(store):
 
 
 def test_pg_auth_and_profiles(store, monkeypatch):
-    monkeypatch.setenv("INFILTR_SECRET_KEY", "pg-test-key")
+    monkeypatch.setenv("INFILTR_SECRET_KEY", "test-secret-key-must-be-at-least-32-characters-long")
     import infiltr.auth.service as svc
     importlib.reload(svc)
     u = svc.create_user("a@x.com", "hunter2")

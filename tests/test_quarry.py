@@ -21,7 +21,7 @@ def _free_port() -> int:
 def qserver(tmp_path):
     port = _free_port()
     env = dict(os.environ, DATABASE_URL=f"sqlite:///{tmp_path/'q.db'}", PYTHONPATH=ROOT,
-               INFILTR_AUTH="1", INFILTR_SECRET_KEY="k", INFILTR_ALLOW_NO_ALLOWLIST="1")
+               INFILTR_AUTH="1", INFILTR_SECRET_KEY="test-secret-key-must-be-at-least-32-characters-long", INFILTR_ALLOW_NO_ALLOWLIST="1")
     proc = subprocess.Popen(
         [sys.executable, "-m", "uvicorn", "infiltr.api.app:app", "--host", "127.0.0.1",
          "--port", str(port), "--log-level", "warning"],

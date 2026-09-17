@@ -54,7 +54,7 @@ def auth_server(tmp_path):
         DATABASE_URL=f"sqlite:///{tmp_path/'auth.db'}",
         PYTHONPATH=ROOT,
         INFILTR_AUTH="1",
-        INFILTR_SECRET_KEY="test-secret-key",
+        INFILTR_SECRET_KEY="test-secret-key-must-be-at-least-32-characters-long",
         INFILTR_ALLOW_NO_ALLOWLIST="1",
     )
     proc = subprocess.Popen(

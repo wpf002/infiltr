@@ -77,13 +77,28 @@ async def security_and_cache(request, call_next):
     return response
 
 
+# obvious placeholders that must never ship as a production signing key
+_WEAK_SECRETS = {"changeme", "secret", "password", "test", "dev", "infiltr", "key",
+                 "change-me", "please-change", "your-secret-key"}
+
+
+def check_secret_strength(secret: str) -> str | None:
+    """Return a reason string if the signing key is unacceptable, else None."""
+    if not secret:
+        return ("INFILTR_AUTH=1 requires a stable INFILTR_SECRET_KEY (an ephemeral key "
+                "invalidates all tokens on restart). Set INFILTR_SECRET_KEY.")
+    if len(secret) < 32 or secret.lower() in _WEAK_SECRETS:
+        return ("INFILTR_SECRET_KEY is too weak. Use >=32 random chars, e.g. "
+                "python3 -c 'import secrets;print(secrets.token_urlsafe(48))'.")
+    return None
+
+
 @app.on_event("startup")
 async def _startup() -> None:
-    if AUTH_ENABLED and not os.environ.get("INFILTR_SECRET_KEY"):
-        raise RuntimeError(
-            "INFILTR_AUTH=1 requires a stable INFILTR_SECRET_KEY (an ephemeral key "
-            "invalidates all tokens on restart). Set INFILTR_SECRET_KEY."
-        )
+    if AUTH_ENABLED:
+        reason = check_secret_strength(os.environ.get("INFILTR_SECRET_KEY", ""))
+        if reason:
+            raise RuntimeError(reason)
     if AUTH_ENABLED and not (store_safety_allowlist() or _allow_no_allowlist()):
         raise RuntimeError(
             "Public deployment (INFILTR_AUTH=1) requires INFILTR_ALLOWLIST to scope "
