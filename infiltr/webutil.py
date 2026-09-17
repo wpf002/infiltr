@@ -25,15 +25,17 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 
 def fetch(url: str, method: str = "GET", timeout: int = 15,
           headers: dict | None = None, max_bytes: int = _MAX,
-          follow_redirects: bool = True) -> dict[str, Any]:
+          follow_redirects: bool = True, data: bytes | str | None = None) -> dict[str, Any]:
     """Return {status, headers(lowercased), body, url}. status 0 on transport error.
 
     follow_redirects=False surfaces the raw 30x + Location header (a 30x then
-    counts as an HTTPError, whose headers still carry Location)."""
+    counts as an HTTPError, whose headers still carry Location).
+    `data` sends a request body (e.g. a JSON POST); pass method="POST" too."""
     hdrs = {"User-Agent": _UA}
     if headers:
         hdrs.update(headers)
-    req = urllib.request.Request(url, method=method, headers=hdrs)
+    payload = data.encode("utf-8") if isinstance(data, str) else data
+    req = urllib.request.Request(url, method=method, headers=hdrs, data=payload)
     try:
         if follow_redirects:
             opener_open = lambda: urllib.request.urlopen(req, timeout=timeout, context=_ctx())  # noqa: E731,S310

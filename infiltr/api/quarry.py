@@ -38,10 +38,10 @@ QUARRY_WORKERS = int(os.environ.get("INFILTR_QUARRY_WORKERS", "10"))
 # Tier 1: passive/safe fingerprint + exposure + known-CVE detection (non-intrusive).
 _TIER1 = ["httpx", "whatweb", "nmap", "naabu", "nuclei", "sslscan", "testssl",
           "wafw00f", "headers", "secrets", "jslibs", "katana", "gowitness", "enum4linux",
-          "takeover"]
+          "takeover", "jwt_audit"]
 # Tier 2: + low-impact active (content discovery, XSS detection, web-server checks).
 _TIER2_EXTRA = ["dalfox", "gobuster", "ffuf", "feroxbuster", "wfuzz", "nikto", "zap",
-                "openredirect", "idor", "ssrf"]
+                "openredirect", "idor", "ssrf", "sqli_detect", "graphql"]
 # Never delegated: scope-expanding recon or intrusive/state-changing tools.
 _NEVER = {"hydra", "metasploit", "sqlmap", "masscan", "subfinder", "theharvester", "dnsx"}
 
@@ -162,6 +162,8 @@ _VULN_CLASS = {
     "zap_alert": "zap-alert",
     "takeover": "subdomain-takeover", "open_redirect": "open-redirect",
     "idor": "idor", "ssrf": "ssrf",
+    "sqli": "sqli", "graphql_introspection": "graphql-introspection",
+    "jwt_weakness": "jwt-weakness",
 }
 
 
@@ -209,6 +211,9 @@ _CONFIDENCE = {
     "open_redirect": 0.8, # canary forwarded off-site
     "idor": 0.9,          # attacker retrieved victim's exact private resource
     "ssrf": 0.9,          # confirmed out-of-band callback
+    "sqli": 0.85,         # error-based: DB error surfaced only with the payload
+    "graphql_introspection": 0.7,  # schema returned — definitive, but often low-impact
+    "jwt_weakness": 0.7,  # alg:none / no-exp on an exposed token
     "zap_alert": 0.7,     # active/passive alert, confidence varies (see per-risk below)
     "secret": 0.7,        # regex match in served JS — can false-positive
     "smb_share": 0.8, "smb_user": 0.8, "smb_group": 0.8,

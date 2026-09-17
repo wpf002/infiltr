@@ -50,13 +50,18 @@ class HeadersWrapper(NativeWrapper):
         probe = fetch(url, timeout=15, headers={**self.auth_headers(), "Origin": "https://evil.example.com"})
         aco = probe["headers"].get("access-control-allow-origin", "")
         acc = probe["headers"].get("access-control-allow-credentials", "").lower()
-        if aco == "https://evil.example.com" or aco == "*":
-            sev = SEV_HIGH if (aco != "*" and acc == "true") else SEV_MEDIUM if aco != "*" else SEV_LOW
+        # Only a REFLECTED arbitrary origin is a vulnerability. A bare
+        # `Access-Control-Allow-Origin: *` is not exploitable (browsers never send
+        # credentials to a wildcard), so it is not reported — it was pure noise.
+        if aco == "https://evil.example.com":
+            with_creds = acc == "true"
             findings.append(Finding(
                 type="cors", name="permissive CORS", value=aco,
                 detail=("reflects arbitrary Origin with credentials — cross-origin data theft"
-                        if acc == "true" and aco != "*" else "permissive Access-Control-Allow-Origin"),
-                severity=sev, metadata={"url": r["url"], "allow_credentials": acc}))
+                        if with_creds else "reflects arbitrary Origin (no credentials) — limited impact"),
+                severity=SEV_HIGH if with_creds else SEV_MEDIUM,
+                metadata={"url": r["url"], "allow_credentials": acc,
+                          "confidence": 0.9 if with_creds else 0.6}))
         return findings
 
     def summarize(self, findings: list[Finding]) -> str:
