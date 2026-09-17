@@ -221,7 +221,7 @@ function renderRow(r) {
 function renderResults() {
   const body = $("#results-body");
   if (!state.order.length) {
-    body.innerHTML = `<tr class="empty-row"><td colspan="7">No scan yet — set a target and hit <b>Run scan</b>.</td></tr>`;
+    body.innerHTML = `<tr class="empty-row"><td colspan="7">No scan yet — set a target and hit <b>Run Scan</b>.</td></tr>`;
     return;
   }
   body.innerHTML = state.order.map((n) => renderRow(state.results[n])).join("");
@@ -337,7 +337,7 @@ async function runScan() {
 function toggleRunning(on) {
   $("#run-btn").disabled = on;
   $("#stop-btn").disabled = !on;
-  $("#run-btn").innerHTML = on ? `<span class="spinner"></span> Scanning` : `<span class="btn-ico">▶</span> Run scan`;
+  $("#run-btn").innerHTML = on ? `<span class="spinner"></span> Scanning` : `<span class="btn-ico">▶</span> Run Scan`;
 }
 
 async function stopScan() {
