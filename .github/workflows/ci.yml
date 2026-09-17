@@ -7,22 +7,46 @@ on:
 
 jobs:
   test:
-    name: Lint + unit tests
+    name: Lint + unit tests (Postgres + Redis)
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: infiltr
+          POSTGRES_PASSWORD: infiltr
+          POSTGRES_DB: infiltr_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U infiltr"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 3s --health-retries 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Install core deps
+          cache: pip
+      - name: Install deps
         run: |
           python -m pip install --upgrade pip
-          pip install sqlalchemy fastapi "uvicorn[standard]" httpx passlib pytest ruff
+          pip install sqlalchemy fastapi "uvicorn[standard]" httpx passlib pytest ruff \
+                      redis "psycopg[binary]"
       - name: Lint (ruff)
         run: ruff check infiltr runner.py || true
       - name: Compile check
         run: python -m compileall infiltr runner.py
-      - name: Unit tests
+      - name: Unit tests (with Postgres + Redis backends)
+        env:
+          INFILTR_TEST_REDIS_URL: redis://127.0.0.1:6379/0
+          INFILTR_TEST_PG_URL: postgresql+psycopg://infiltr:infiltr@127.0.0.1:5432/infiltr_test
         run: pytest -q
 
   integration:
@@ -38,6 +62,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          cache: pip
       - name: Install deps + a scan tool
         run: |
           python -m pip install --upgrade pip
@@ -52,3 +77,19 @@ jobs:
         env:
           INFILTR_TEST_TARGET: http://localhost:8080
         run: pytest -q tests/test_integration.py
+
+  image:
+    name: Docker image builds
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build image (cached, no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          tags: infiltr:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
