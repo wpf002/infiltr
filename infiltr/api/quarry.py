@@ -33,7 +33,7 @@ router = APIRouter(prefix="/v1/quarry", tags=["quarry"])
 log = get_logger("infiltr.quarry")
 
 SYNC_DEADLINE = int(os.environ.get("INFILTR_QUARRY_SYNC_DEADLINE", "120"))
-QUARRY_WORKERS = int(os.environ.get("INFILTR_QUARRY_WORKERS", "3"))
+QUARRY_WORKERS = int(os.environ.get("INFILTR_QUARRY_WORKERS", "10"))
 
 # Tier 1: passive/safe fingerprint + exposure + known-CVE detection (non-intrusive).
 _TIER1 = ["httpx", "whatweb", "nmap", "naabu", "nuclei", "sslscan", "testssl",
@@ -95,8 +95,15 @@ def _scan_options(tiers: list[int]) -> dict[str, Any]:
     # nuclei: detection templates only — always strip intrusive/dos/fuzzing tags.
     sev = "info,low,medium,high,critical"
     return {
-        "nuclei": {"severity": sev, "exclude_tags": "dos,intrusive,fuzz,fuzzing", "rate_limit": 80},
+        # nuclei: higher throughput (rate_limit + template concurrency) so the CVE
+        # sweep doesn't set the tail; still detection-only (dos/intrusive/fuzz stripped).
+        "nuclei": {"severity": sev, "exclude_tags": "dos,intrusive,fuzz,fuzzing",
+                   "rate_limit": 200, "concurrency": 50},
         "nmap": {"ports": "top1000"},          # service/version, no vuln NSE
+        # testssl --fast: one handshake per protocol instead of per-cipher enumeration.
+        "testssl": {"fast": True},
+        # ZAP stays passive (spider + passive rules) for Quarry — never the active scan.
+        "zap": {"mode": "baseline"},
     }
 
 

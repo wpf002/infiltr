@@ -41,11 +41,13 @@ class TestsslWrapper(BaseWrapper):
         self._outfile = tempfile.NamedTemporaryFile(
             prefix="infiltr_testssl_", suffix=".json", delete=False
         ).name
-        return [
-            self._bin(), "--quiet", "--color", "0",
-            "--jsonfile", self._outfile,
-            f"{host}:{port or 443}",
-        ]
+        cmd = [self._bin(), "--quiet", "--color", "0", "--jsonfile", self._outfile]
+        # --fast skips per-cipher enumeration (one handshake per proto); big speedup,
+        # keeps protocol + vulnerability checks. Opt-in via option.
+        if str(self.options.get("fast", "")).lower() in ("1", "true", "yes"):
+            cmd.append("--fast")
+        cmd.append(f"{host}:{port or 443}")
+        return cmd
 
     def parse_output(self, stdout: str, stderr: str, returncode: int) -> list[Finding]:
         findings: list[Finding] = []

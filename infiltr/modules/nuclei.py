@@ -41,6 +41,7 @@ class NucleiWrapper(BaseWrapper):
                      "help": "comma severities to report (info,low,medium,high,critical)"},
         "tags": {"type": "string", "default": "", "help": "restrict to template tags (e.g. cve,exposure)"},
         "rate_limit": {"type": "int", "default": 150, "help": "requests/sec"},
+        "concurrency": {"type": "int", "default": 0, "help": "parallel templates (-c); 0 = nuclei default"},
     }
     DEFAULT_TIMEOUT = 900
 
@@ -54,6 +55,9 @@ class NucleiWrapper(BaseWrapper):
             "-disable-update-check",
             "-no-mhe",  # don't abort the whole host after N template errors (404s trip it)
         ]
+        concurrency = int(self.options.get("concurrency", 0) or 0)
+        if concurrency > 0:
+            cmd += ["-c", str(concurrency)]
         tags = self.options.get("tags")
         if tags:
             cmd += ["-tags", str(tags)]
