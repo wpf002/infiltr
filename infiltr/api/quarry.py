@@ -36,7 +36,8 @@ SYNC_DEADLINE = int(os.environ.get("INFILTR_QUARRY_SYNC_DEADLINE", "120"))
 QUARRY_WORKERS = int(os.environ.get("INFILTR_QUARRY_WORKERS", "3"))
 
 # Tier 1: passive/safe fingerprint + exposure + known-CVE detection (non-intrusive).
-_TIER1 = ["httpx", "whatweb", "nmap", "nuclei", "sslscan", "testssl", "wafw00f"]
+_TIER1 = ["httpx", "whatweb", "nmap", "naabu", "nuclei", "sslscan", "testssl",
+          "wafw00f", "headers", "secrets", "jslibs", "katana", "gowitness"]
 # Tier 2: + low-impact active (content discovery, XSS detection, web-server checks).
 _TIER2_EXTRA = ["dalfox", "gobuster", "ffuf", "feroxbuster", "wfuzz", "nikto"]
 # Never delegated: scope-expanding recon or intrusive/state-changing tools.
@@ -110,6 +111,9 @@ _VULN_CLASS = {
     "waf": "waf-detected", "open_port": "open-port", "os": "os-fingerprint",
     "vuln_hint": "possible-vulnerability", "dbms": "dbms-detected",
     "wp_version": "wordpress-version", "wp_plugin": "wordpress-plugin", "wp_user": "wordpress-user",
+    "endpoint": "discovered-endpoint", "secret": "exposed-secret", "exposure": "sensitive-file-exposure",
+    "jslib": "js-library", "missing_header": "missing-security-header", "cors": "cors-misconfiguration",
+    "screenshot": "screenshot-evidence", "note": "scan-note",
 }
 
 

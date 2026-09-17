@@ -29,6 +29,12 @@ MODULE_EXPLANATIONS: dict[str, str] = {
     "wpscan": "WordPress-specific scanner — enumerates version, plugins, users and known vulnerabilities.",
     "hydra": "Online credential brute-force / password spraying against a login service. A hit is a working username/password pair.",
     "metasploit": "Runs a Metasploit module (auxiliary scanner by default, exploits when pointed there) against the target for authorized testing.",
+    "katana": "Crawls the target to discover endpoints, URLs, and parameters (including those only referenced in JavaScript). Feeds the rest of the scan.",
+    "naabu": "Fast TCP-connect port scan. Confirms which ports are reachable without raw sockets; a lighter, container-friendly alternative to masscan.",
+    "gowitness": "Takes a headless-browser screenshot of the target — visual evidence of what's actually served.",
+    "headers": "Checks HTTP security headers (HSTS, CSP, X-Frame-Options, nosniff) and probes for permissive CORS that could allow cross-origin data theft.",
+    "secrets": "Looks for exposed sensitive files (.git, .env, backups, credentials) and scans served JavaScript for hardcoded API keys, tokens, and private keys.",
+    "jslibs": "Fingerprints client-side JavaScript libraries and versions and flags end-of-life or known-vulnerable ones.",
 }
 
 # What each finding TYPE means and why it matters.
@@ -67,6 +73,14 @@ FINDING_EXPLANATIONS: dict[str, str] = {
     "wp_version": "The detected WordPress core version — check it against known WordPress CVEs.",
     "wp_plugin": "A WordPress plugin (and version) — plugins are the most common source of WordPress vulnerabilities.",
     "wp_user": "A WordPress username enumerated from the site — halves the work for a login brute-force.",
+    "endpoint": "A URL/endpoint discovered by crawling the target. Endpoints with parameters are candidates for injection/IDOR testing.",
+    "screenshot": "A rendered screenshot of the target, captured as visual evidence.",
+    "secret": "A hardcoded secret (API key, token, or private key) found in served content. Rotate it immediately — anyone who can load the page can read it.",
+    "exposure": "A sensitive file or directory reachable over HTTP (e.g. .git, .env, a backup). Often leaks source code, credentials, or configuration.",
+    "jslib": "A client-side JavaScript library and version. Outdated versions map to known CVEs.",
+    "missing_header": "A recommended HTTP security header is absent, weakening the browser's built-in protections.",
+    "cors": "A Cross-Origin Resource Sharing misconfiguration. A reflected/wildcard origin (especially with credentials) can let a malicious site read authenticated responses.",
+    "note": "An operational note about the module run (e.g. a capability was unavailable).",
 }
 
 _DEFAULT_FINDING = "A result reported by this module. See the raw output for detail."

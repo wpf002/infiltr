@@ -272,3 +272,58 @@ class BaseWrapper:
         result.status = PASS
         result.finished_at = datetime.now(timezone.utc).isoformat()
         return result
+
+
+class NativeWrapper(BaseWrapper):
+    """A module implemented in pure Python (HTTP requests, no external binary).
+
+    Override collect(target) -> list[Finding]. No TOOL_BIN / build_command /
+    parse_output needed; always 'installed' (uses the stdlib).
+    """
+    IS_NATIVE = True
+    TOOL_BIN = ""
+
+    @classmethod
+    def is_installed(cls) -> bool:
+        return True
+
+    @classmethod
+    def validate(cls) -> list[str]:
+        errors: list[str] = []
+        if not cls.MODULE_NAME or cls.MODULE_NAME == "base":
+            errors.append("MODULE_NAME must be set to a unique value")
+        if cls.CATEGORY not in {"recon", "web", "auth", "misc", "exploit"}:
+            errors.append(f"CATEGORY '{cls.CATEGORY}' not in recon|web|auth|misc|exploit")
+        if cls.collect is NativeWrapper.collect:
+            errors.append("collect() must be overridden")
+        return errors
+
+    def collect(self, target: str) -> list["Finding"]:
+        raise NotImplementedError
+
+    def run(self, target: str) -> ScanResult:
+        started = datetime.now(timezone.utc)
+        result = ScanResult(module=self.MODULE_NAME, category=self.CATEGORY,
+                            target=target, started_at=started.isoformat())
+        if self._cancelled:
+            result.status = ERROR
+            result.error = "cancelled"
+            result.finished_at = datetime.now(timezone.utc).isoformat()
+            return result
+        result.command = f"[native] {self.MODULE_NAME}({target})"
+        t0 = time.monotonic()
+        try:
+            findings = self.collect(target)
+        except Exception as exc:  # noqa: BLE001
+            result.status = ERROR
+            result.error = f"native module failed: {exc}"
+            result.duration = round(time.monotonic() - t0, 2)
+            result.finished_at = datetime.now(timezone.utc).isoformat()
+            return result
+        result.findings = findings
+        result.summary = self.summarize(findings)
+        result.compute_severity()
+        result.status = PASS
+        result.duration = round(time.monotonic() - t0, 2)
+        result.finished_at = datetime.now(timezone.utc).isoformat()
+        return result

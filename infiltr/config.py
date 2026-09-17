@@ -96,6 +96,12 @@ MODULES: dict[str, dict[str, Any]] = {
     "wpscan": {"timeout": 600},
     "masscan": {"ports": "1-1000", "rate": 1000, "timeout": 600},
     "metasploit": {"module": "auxiliary/scanner/http/http_version", "timeout": 600},
+    "katana": {"depth": 2, "timeout": 300},
+    "naabu": {"ports": "top-1000", "rate": 500, "timeout": 300},
+    "gowitness": {"timeout": 120},
+    "headers": {"timeout": 30},
+    "secrets": {"timeout": 60},
+    "jslibs": {"timeout": 30},
 }
 
 
