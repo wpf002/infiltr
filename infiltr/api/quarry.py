@@ -41,7 +41,7 @@ _TIER1 = ["httpx", "whatweb", "nmap", "naabu", "nuclei", "sslscan", "testssl",
           "takeover"]
 # Tier 2: + low-impact active (content discovery, XSS detection, web-server checks).
 _TIER2_EXTRA = ["dalfox", "gobuster", "ffuf", "feroxbuster", "wfuzz", "nikto", "zap",
-                "openredirect"]
+                "openredirect", "idor", "ssrf"]
 # Never delegated: scope-expanding recon or intrusive/state-changing tools.
 _NEVER = {"hydra", "metasploit", "sqlmap", "masscan", "subfinder", "theharvester", "dnsx"}
 
@@ -54,6 +54,9 @@ class QuarryProfile(BaseModel):
 class QuarryScanRequest(BaseModel):
     target: str
     profile: QuarryProfile = Field(default_factory=QuarryProfile)
+    # optional per-module inputs the fixed schema can't carry: a second identity
+    # for idor, a canary host for ssrf. Only idor/ssrf keys are honored.
+    context: Optional[dict] = None
 
 
 # ---- auth: Bearer API key or access JWT (always required) --------------
@@ -93,6 +96,38 @@ def _modules_for(tiers: list[int], tools: Optional[list[str]]) -> list[str]:
     return selected
 
 
+def _clean_headers(h: Any) -> dict[str, str]:
+    """Drop header names that could inject a CLI flag or a second header."""
+    out: dict[str, str] = {}
+    if isinstance(h, dict):
+        for k, v in h.items():
+            k = str(k)
+            if k.startswith("-") or ":" in k or not k.strip():
+                continue
+            out[k] = str(v)
+    return out
+
+
+def _apply_context(options: dict, context: Any) -> None:
+    """Thread the optional request context into the idor/ssrf module options.
+    Only these two keys are honored; header names are sanitized."""
+    if not isinstance(context, dict):
+        return
+    idor = context.get("idor")
+    if isinstance(idor, dict) and idor.get("victim_id"):
+        options["idor"] = {
+            "victim_headers": _clean_headers(idor.get("victim_headers")),
+            "victim_id": str(idor.get("victim_id")),
+            "id_param": (str(idor["id_param"]) if idor.get("id_param") else None),
+        }
+    ssrf = context.get("ssrf")
+    if isinstance(ssrf, dict) and ssrf.get("canary_host"):
+        opt = {"canary_host": str(ssrf["canary_host"])}
+        if str(ssrf.get("wait", "")).isdigit():
+            opt["wait"] = int(ssrf["wait"])
+        options["ssrf"] = opt
+
+
 def _scan_options(tiers: list[int]) -> dict[str, Any]:
     # nuclei: detection templates only — always strip intrusive/dos/fuzzing tags.
     sev = "info,low,medium,high,critical"
@@ -126,6 +161,7 @@ _VULN_CLASS = {
     "smb_share": "smb-share", "smb_user": "smb-user", "smb_group": "smb-group", "domain": "smb-domain",
     "zap_alert": "zap-alert",
     "takeover": "subdomain-takeover", "open_redirect": "open-redirect",
+    "idor": "idor", "ssrf": "ssrf",
 }
 
 
@@ -171,6 +207,8 @@ _CONFIDENCE = {
     "cors": 0.85,         # ACAO reflection observed
     "takeover": 0.72,     # body signature (raised to 0.9 via metadata when CNAME confirms)
     "open_redirect": 0.8, # canary forwarded off-site
+    "idor": 0.9,          # attacker retrieved victim's exact private resource
+    "ssrf": 0.9,          # confirmed out-of-band callback
     "zap_alert": 0.7,     # active/passive alert, confidence varies (see per-risk below)
     "secret": 0.7,        # regex match in served JS — can false-positive
     "smb_share": 0.8, "smb_user": 0.8, "smb_group": 0.8,
@@ -272,6 +310,7 @@ async def _launch(req: QuarryScanRequest, user: dict) -> int:
         raise HTTPException(400, "exactly one target host/URL is required")
     modules = _modules_for(req.profile.tiers, req.profile.tools)
     options = _scan_options(req.profile.tiers)
+    _apply_context(options, req.context)
     try:
         return await manager.start_scan(
             target=target, modules=modules, options=options,

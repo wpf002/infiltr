@@ -151,3 +151,72 @@ def test_secrets_svn_and_bak(monkeypatch):
     monkeypatch.setattr("infiltr.modules.secrets.fetch", fake_fetch)
     names = {x.name for x in SecretsWrapper().collect("http://t") if x.type == "exposure"}
     assert "/.svn/entries" in names and "/config.php.bak" in names
+
+
+# ---- idor / ssrf ------------------------------------------------------
+def test_idor_confirmed_cross_user_read(monkeypatch):
+    from infiltr.modules.idor import IdorWrapper
+    victim_body = "Account: Bob | SSN 123-45-6789 | balance $4210"
+    def fake_fetch(url, method="GET", timeout=15, headers=None, max_bytes=0):
+        # authed identities (victim + attacker) get the private resource;
+        # an anonymous request (no Cookie) is bounced to a login page
+        if (headers or {}).get("Cookie"):
+            return {"status": 200, "url": url, "headers": {}, "body": victim_body}
+        return {"status": 200, "url": url, "headers": {}, "body": "Please log in"}
+    monkeypatch.setattr("infiltr.modules.idor.fetch", fake_fetch)
+    w = IdorWrapper(options={"victim_headers": {"Cookie": "s=victim"}, "victim_id": "2", "id_param": "id",
+                             "auth_headers": {"Cookie": "s=attacker"}})
+    f = w.collect("http://t/profile?id=1")
+    assert any(x.type == "idor" and x.metadata["confidence"] == 0.9 for x in f)
+
+
+def test_idor_public_page_no_false_positive(monkeypatch):
+    from infiltr.modules.idor import IdorWrapper
+    # everyone (incl. anonymous) gets the same page -> public, not IDOR (the DVWA case)
+    def fake_fetch(url, method="GET", timeout=15, headers=None, max_bytes=0):
+        return {"status": 200, "url": url, "headers": {}, "body": "<html>Welcome, please sign in</html>"}
+    monkeypatch.setattr("infiltr.modules.idor.fetch", fake_fetch)
+    w = IdorWrapper(options={"victim_headers": {"Cookie": "s=victim"}, "victim_id": "2", "id_param": "id",
+                             "auth_headers": {"Cookie": "s=attacker"}})
+    assert not any(x.type == "idor" for x in w.collect("http://t/profile?id=1"))
+
+
+def test_idor_no_second_identity_is_noop():
+    from infiltr.modules.idor import IdorWrapper
+    f = IdorWrapper(options={}).collect("http://t/profile?id=1")
+    assert all(x.type == "note" for x in f)
+
+
+def test_idor_denied_when_attacker_blocked(monkeypatch):
+    from infiltr.modules.idor import IdorWrapper
+    def fake_fetch(url, method="GET", timeout=15, headers=None, max_bytes=0):
+        if (headers or {}).get("Cookie") == "s=victim":
+            return {"status": 200, "url": url, "headers": {}, "body": "Bob private data here"}
+        return {"status": 403, "url": url, "headers": {}, "body": "Forbidden"}
+    monkeypatch.setattr("infiltr.modules.idor.fetch", fake_fetch)
+    w = IdorWrapper(options={"victim_headers": {"Cookie": "s=victim"}, "victim_id": "2", "id_param": "id",
+                             "auth_headers": {"Cookie": "s=attacker"}})
+    assert not any(x.type == "idor" for x in w.collect("http://t/profile?id=1"))
+
+
+def test_ssrf_callback_confirms(monkeypatch):
+    from infiltr.modules import ssrf as ssrf_mod
+    # capture the tokens the module injects, then simulate the target calling back
+    injected = {}
+    real_fetch = ssrf_mod.fetch
+    def fake_fetch(url, method="GET", timeout=15, headers=None, max_bytes=0):
+        import re
+        m = re.search(r"([0-9a-f]{16})", url)  # token appears URL-encoded in the query
+        if m:
+            ssrf_mod._Collector.hits.add(m.group(1))  # target "fetches" the canary
+        return {"status": 200, "url": url, "headers": {}, "body": ""}
+    monkeypatch.setattr("infiltr.modules.ssrf.fetch", fake_fetch)
+    w = ssrf_mod.SsrfWrapper(options={"canary_host": "canary.local", "wait": 2})
+    f = w.collect("http://t/fetch?url=x")
+    assert any(x.type == "ssrf" and x.metadata["confidence"] == 0.9 for x in f)
+
+
+def test_ssrf_no_canary_is_noop():
+    from infiltr.modules.ssrf import SsrfWrapper
+    f = SsrfWrapper(options={}).collect("http://t/fetch?url=x")
+    assert all(x.type == "note" for x in f)

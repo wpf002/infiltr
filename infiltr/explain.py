@@ -39,6 +39,8 @@ MODULE_EXPLANATIONS: dict[str, str] = {
     "zap": "OWASP ZAP active web-app scan. Spiders the site and runs passive rules (baseline) or the active scanner (full) to find injection, XSS, misconfig and more.",
     "takeover": "Checks the target host for subdomain takeover: a dangling CNAME pointing at an unclaimed third-party service (S3, GitHub Pages, Heroku, etc.). Only the given host is tested.",
     "openredirect": "Probes the target URL's redirect parameters with a benign external canary to detect open redirects that forward users off-site.",
+    "idor": "IDOR/BOLA: with a second identity supplied, proves whether the scan identity can read another user's object by comparing responses. Emits nothing without two identities.",
+    "ssrf": "SSRF via out-of-band callback: injects a canary URL into server-side-fetch parameters and confirms the issue only if the target calls back to Infiltr's listener. Needs a reachable canary_host.",
 }
 
 # What each finding TYPE means and why it matters.
@@ -92,6 +94,8 @@ FINDING_EXPLANATIONS: dict[str, str] = {
     "zap_alert": "A finding from OWASP ZAP's spider + passive/active scan rules (e.g. injection, XSS, CSRF, information disclosure), with CWE and evidence.",
     "takeover": "A subdomain-takeover candidate: the host serves an unclaimed third-party service's error page. If its DNS target is registrable, an attacker can claim it and control the subdomain.",
     "open_redirect": "A parameter that redirects users to an attacker-controlled external URL. Used for phishing and to bypass OAuth/SSRF allow-lists.",
+    "idor": "Broken object-level authorization: one identity retrieved another user's resource by changing an object id. Direct access to other users' data.",
+    "ssrf": "Server-Side Request Forgery: the server fetched an attacker-supplied URL (confirmed by an out-of-band callback). Can reach internal services and cloud metadata.",
 }
 
 _DEFAULT_FINDING = "A result reported by this module. See the raw output for detail."

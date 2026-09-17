@@ -106,6 +106,8 @@ MODULES: dict[str, dict[str, Any]] = {
     "zap": {"mode": "baseline", "timeout": 900},
     "takeover": {"timeout": 30},
     "openredirect": {"timeout": 60},
+    "idor": {"timeout": 60},
+    "ssrf": {"timeout": 90},
 }
 
 
