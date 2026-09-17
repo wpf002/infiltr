@@ -35,6 +35,7 @@ MODULE_EXPLANATIONS: dict[str, str] = {
     "headers": "Checks HTTP security headers (HSTS, CSP, X-Frame-Options, nosniff) and probes for permissive CORS that could allow cross-origin data theft.",
     "secrets": "Looks for exposed sensitive files (.git, .env, backups, credentials) and scans served JavaScript for hardcoded API keys, tokens, and private keys.",
     "jslibs": "Fingerprints client-side JavaScript libraries and versions and flags end-of-life or known-vulnerable ones.",
+    "enum4linux": "Enumerates a Windows/SMB host over ports 139/445 — shares, users, groups, OS and domain info. Read-only.",
 }
 
 # What each finding TYPE means and why it matters.
@@ -81,6 +82,10 @@ FINDING_EXPLANATIONS: dict[str, str] = {
     "missing_header": "A recommended HTTP security header is absent, weakening the browser's built-in protections.",
     "cors": "A Cross-Origin Resource Sharing misconfiguration. A reflected/wildcard origin (especially with credentials) can let a malicious site read authenticated responses.",
     "note": "An operational note about the module run (e.g. a capability was unavailable).",
+    "smb_share": "An SMB network share on the host. Readable/writable shares can expose files or allow data drops.",
+    "smb_user": "A user account enumerated from the host over SMB — useful for password attacks.",
+    "smb_group": "A group enumerated from the host over SMB.",
+    "domain": "The SMB domain/workgroup the host belongs to.",
 }
 
 _DEFAULT_FINDING = "A result reported by this module. See the raw output for detail."

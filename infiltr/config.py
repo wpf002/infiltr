@@ -102,6 +102,7 @@ MODULES: dict[str, dict[str, Any]] = {
     "headers": {"timeout": 30},
     "secrets": {"timeout": 60},
     "jslibs": {"timeout": 30},
+    "enum4linux": {"timeout": 300},
 }
 
 
