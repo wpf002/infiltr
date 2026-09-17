@@ -56,6 +56,9 @@ class NucleiWrapper(BaseWrapper):
         tags = self.options.get("tags")
         if tags:
             cmd += ["-tags", str(tags)]
+        exclude_tags = self.options.get("exclude_tags")
+        if exclude_tags:
+            cmd += ["-exclude-tags", str(exclude_tags)]
         # give nuclei's Go resolver the system nameserver (needs a file, ip:53) so
         # it can resolve internal hostnames too; harmless for public targets
         resolver = self.options.get("resolver") or _system_resolver()

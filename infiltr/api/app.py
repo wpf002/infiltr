@@ -18,6 +18,7 @@ from ..auth import service as auth_service
 from ..auth.deps import (current_user, require_user, require_role, rate_limit,
                          auth_rate_limit, user_id_of, AUTH_ENABLED)
 from .manager import manager
+from .quarry import router as quarry_router
 from ..scheduler.service import Scheduler
 
 from .logging_setup import setup_logging, get_logger
@@ -32,6 +33,7 @@ app = FastAPI(
     redoc_url="/redoc" if _DOCS else None,
     openapi_url="/openapi.json" if _DOCS else None,
 )
+app.include_router(quarry_router)
 
 _scheduler = Scheduler(manager)
 SCHEDULER_ENABLED = os.environ.get("INFILTR_SCHEDULER", "0") in ("1", "true", "True")
