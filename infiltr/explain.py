@@ -37,6 +37,8 @@ MODULE_EXPLANATIONS: dict[str, str] = {
     "jslibs": "Fingerprints client-side JavaScript libraries and versions and flags end-of-life or known-vulnerable ones.",
     "enum4linux": "Enumerates a Windows/SMB host over ports 139/445 — shares, users, groups, OS and domain info. Read-only.",
     "zap": "OWASP ZAP active web-app scan. Spiders the site and runs passive rules (baseline) or the active scanner (full) to find injection, XSS, misconfig and more.",
+    "takeover": "Checks the target host for subdomain takeover: a dangling CNAME pointing at an unclaimed third-party service (S3, GitHub Pages, Heroku, etc.). Only the given host is tested.",
+    "openredirect": "Probes the target URL's redirect parameters with a benign external canary to detect open redirects that forward users off-site.",
 }
 
 # What each finding TYPE means and why it matters.
@@ -88,6 +90,8 @@ FINDING_EXPLANATIONS: dict[str, str] = {
     "smb_group": "A group enumerated from the host over SMB.",
     "domain": "The SMB domain/workgroup the host belongs to.",
     "zap_alert": "A finding from OWASP ZAP's spider + passive/active scan rules (e.g. injection, XSS, CSRF, information disclosure), with CWE and evidence.",
+    "takeover": "A subdomain-takeover candidate: the host serves an unclaimed third-party service's error page. If its DNS target is registrable, an attacker can claim it and control the subdomain.",
+    "open_redirect": "A parameter that redirects users to an attacker-controlled external URL. Used for phishing and to bypass OAuth/SSRF allow-lists.",
 }
 
 _DEFAULT_FINDING = "A result reported by this module. See the raw output for detail."

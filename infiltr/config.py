@@ -104,6 +104,8 @@ MODULES: dict[str, dict[str, Any]] = {
     "jslibs": {"timeout": 30},
     "enum4linux": {"timeout": 300},
     "zap": {"mode": "baseline", "timeout": 900},
+    "takeover": {"timeout": 30},
+    "openredirect": {"timeout": 60},
 }
 
 

@@ -17,15 +17,30 @@ def _ctx() -> ssl.SSLContext:
     return ctx
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Return 30x responses as-is instead of following them (open-redirect checks)."""
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: D401
+        return None
+
+
 def fetch(url: str, method: str = "GET", timeout: int = 15,
-          headers: dict | None = None, max_bytes: int = _MAX) -> dict[str, Any]:
-    """Return {status, headers(lowercased), body, url}. status 0 on transport error."""
+          headers: dict | None = None, max_bytes: int = _MAX,
+          follow_redirects: bool = True) -> dict[str, Any]:
+    """Return {status, headers(lowercased), body, url}. status 0 on transport error.
+
+    follow_redirects=False surfaces the raw 30x + Location header (a 30x then
+    counts as an HTTPError, whose headers still carry Location)."""
     hdrs = {"User-Agent": _UA}
     if headers:
         hdrs.update(headers)
     req = urllib.request.Request(url, method=method, headers=hdrs)
     try:
-        with urllib.request.urlopen(req, timeout=timeout, context=_ctx()) as r:  # noqa: S310
+        if follow_redirects:
+            opener_open = lambda: urllib.request.urlopen(req, timeout=timeout, context=_ctx())  # noqa: E731,S310
+        else:
+            opener = urllib.request.build_opener(_NoRedirect(), urllib.request.HTTPSHandler(context=_ctx()))
+            opener_open = lambda: opener.open(req, timeout=timeout)  # noqa: E731
+        with opener_open() as r:  # noqa: S310
             body = r.read(max_bytes).decode("utf-8", "replace")
             return {"status": r.status, "headers": _lower(r.headers), "body": body, "url": r.geturl()}
     except urllib.error.HTTPError as e:

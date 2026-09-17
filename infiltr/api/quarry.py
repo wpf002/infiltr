@@ -37,9 +37,11 @@ QUARRY_WORKERS = int(os.environ.get("INFILTR_QUARRY_WORKERS", "10"))
 
 # Tier 1: passive/safe fingerprint + exposure + known-CVE detection (non-intrusive).
 _TIER1 = ["httpx", "whatweb", "nmap", "naabu", "nuclei", "sslscan", "testssl",
-          "wafw00f", "headers", "secrets", "jslibs", "katana", "gowitness", "enum4linux"]
+          "wafw00f", "headers", "secrets", "jslibs", "katana", "gowitness", "enum4linux",
+          "takeover"]
 # Tier 2: + low-impact active (content discovery, XSS detection, web-server checks).
-_TIER2_EXTRA = ["dalfox", "gobuster", "ffuf", "feroxbuster", "wfuzz", "nikto", "zap"]
+_TIER2_EXTRA = ["dalfox", "gobuster", "ffuf", "feroxbuster", "wfuzz", "nikto", "zap",
+                "openredirect"]
 # Never delegated: scope-expanding recon or intrusive/state-changing tools.
 _NEVER = {"hydra", "metasploit", "sqlmap", "masscan", "subfinder", "theharvester", "dnsx"}
 
@@ -123,6 +125,7 @@ _VULN_CLASS = {
     "screenshot": "screenshot-evidence", "note": "scan-note",
     "smb_share": "smb-share", "smb_user": "smb-user", "smb_group": "smb-group", "domain": "smb-domain",
     "zap_alert": "zap-alert",
+    "takeover": "subdomain-takeover", "open_redirect": "open-redirect",
 }
 
 
@@ -166,6 +169,8 @@ _CONFIDENCE = {
     "exposure": 0.9,      # sensitive file returned HTTP 200 (verified fetch)
     "xss": 0.85,          # dalfox confirmed reflection/execution
     "cors": 0.85,         # ACAO reflection observed
+    "takeover": 0.72,     # body signature (raised to 0.9 via metadata when CNAME confirms)
+    "open_redirect": 0.8, # canary forwarded off-site
     "zap_alert": 0.7,     # active/passive alert, confidence varies (see per-risk below)
     "secret": 0.7,        # regex match in served JS — can false-positive
     "smb_share": 0.8, "smb_user": 0.8, "smb_group": 0.8,

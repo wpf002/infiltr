@@ -21,6 +21,14 @@ _EXPOSED_FILES = {
     "/wp-config.php.bak": (SEV_CRITICAL, "exposed WordPress config backup"),
     "/backup.sql": (SEV_HIGH, "exposed database dump"),
     "/.DS_Store": (SEV_LOW, "exposed .DS_Store (directory listing leak)"),
+    "/.svn/entries": (SEV_HIGH, "exposed Subversion metadata (source disclosure)"),
+    "/.svn/wc.db": (SEV_HIGH, "exposed Subversion working-copy database"),
+    "/.hg/requires": (SEV_HIGH, "exposed Mercurial repository"),
+    "/.bzr/branch/branch.conf": (SEV_HIGH, "exposed Bazaar repository"),
+    "/config.php.bak": (SEV_CRITICAL, "exposed PHP config backup"),
+    "/web.config.bak": (SEV_HIGH, "exposed web.config backup"),
+    "/index.php.bak": (SEV_MEDIUM, "exposed source backup"),
+    "/.htaccess.bak": (SEV_MEDIUM, "exposed .htaccess backup"),
 }
 
 # secret patterns in served JS/text (kept high-precision to limit false positives)

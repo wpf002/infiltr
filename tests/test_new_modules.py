@@ -80,3 +80,74 @@ def test_jslibs_detects_outdated(monkeypatch):
     jq = next(x for x in f if x.name == "jquery")
     assert jq.value == "3.4.1"
     assert jq.metadata["outdated"] and jq.severity == "medium"
+
+
+# ---- takeover / openredirect / secrets extension ----------------------
+def test_takeover_body_and_cname(monkeypatch):
+    from infiltr.modules.takeover import TakeoverWrapper
+    def fake_fetch(url, method="GET", timeout=15, headers=None, max_bytes=0):
+        return {"status": 404, "url": url, "headers": {},
+                "body": "404 There isn't a GitHub Pages site here."}
+    monkeypatch.setattr("infiltr.modules.takeover.fetch", fake_fetch)
+    # CNAME confirms the service -> high confidence
+    monkeypatch.setattr("socket.gethostbyname_ex",
+                        lambda h: ("victim.github.io", ["victim.github.io"], ["185.199.108.153"]))
+    f = TakeoverWrapper().collect("http://sub.victim.com")
+    hit = next(x for x in f if x.type == "takeover")
+    assert hit.metadata["service"] == "github-pages"
+    assert hit.metadata["cname_confirmed"] is True
+    assert hit.metadata["confidence"] == 0.9
+
+
+def test_takeover_body_only_lower_confidence(monkeypatch):
+    from infiltr.modules.takeover import TakeoverWrapper
+    monkeypatch.setattr("infiltr.modules.takeover.fetch",
+                        lambda url, **k: {"status": 404, "url": url, "headers": {},
+                                          "body": "NoSuchBucket"})
+    monkeypatch.setattr("socket.gethostbyname_ex", lambda h: ("1.2.3.4", [], ["1.2.3.4"]))
+    f = TakeoverWrapper().collect("http://sub.victim.com")
+    hit = next(x for x in f if x.type == "takeover")
+    assert hit.metadata["service"] == "aws-s3" and hit.metadata["confidence"] == 0.72
+
+
+def test_takeover_clean_target_no_finding(monkeypatch):
+    from infiltr.modules.takeover import TakeoverWrapper
+    monkeypatch.setattr("infiltr.modules.takeover.fetch",
+                        lambda url, **k: {"status": 200, "url": url, "headers": {}, "body": "<html>Welcome</html>"})
+    monkeypatch.setattr("socket.gethostbyname_ex", lambda h: ("1.2.3.4", [], ["1.2.3.4"]))
+    f = TakeoverWrapper().collect("http://ok.victim.com")
+    assert not any(x.type == "takeover" for x in f)
+
+
+def test_openredirect_detects_location(monkeypatch):
+    from infiltr.modules.openredirect import OpenRedirectWrapper
+    def fake_fetch(url, method="GET", timeout=15, headers=None, max_bytes=0, follow_redirects=True):
+        if "next=" in url:
+            return {"status": 302, "url": url,
+                    "headers": {"location": "https://example.com/infiltr"}, "body": ""}
+        return {"status": 200, "url": url, "headers": {}, "body": ""}
+    monkeypatch.setattr("infiltr.modules.openredirect.fetch", fake_fetch)
+    f = OpenRedirectWrapper().collect("http://t/redirect")
+    hits = [x for x in f if x.type == "open_redirect"]
+    assert any(x.metadata["param"] == "next" for x in hits)
+    assert hits[0].metadata["confidence"] == 0.8
+
+
+def test_openredirect_no_false_positive(monkeypatch):
+    from infiltr.modules.openredirect import OpenRedirectWrapper
+    monkeypatch.setattr("infiltr.modules.openredirect.fetch",
+                        lambda url, **k: {"status": 200, "url": url, "headers": {}, "body": ""})
+    f = OpenRedirectWrapper().collect("http://t/page")
+    assert not any(x.type == "open_redirect" for x in f)
+
+
+def test_secrets_svn_and_bak(monkeypatch):
+    def fake_fetch(url, method="GET", timeout=15, headers=None, max_bytes=0):
+        if url.endswith("/.svn/entries"):
+            return {"status": 200, "url": url, "headers": {}, "body": "12\n\ndir\n"}
+        if url.endswith("/config.php.bak"):
+            return {"status": 200, "url": url, "headers": {}, "body": "<?php $db_pass='x';"}
+        return {"status": 404, "url": url, "headers": {}, "body": ""}
+    monkeypatch.setattr("infiltr.modules.secrets.fetch", fake_fetch)
+    names = {x.name for x in SecretsWrapper().collect("http://t") if x.type == "exposure"}
+    assert "/.svn/entries" in names and "/config.php.bak" in names
