@@ -35,15 +35,17 @@ log = get_logger("infiltr.quarry")
 SYNC_DEADLINE = int(os.environ.get("INFILTR_QUARRY_SYNC_DEADLINE", "120"))
 QUARRY_WORKERS = int(os.environ.get("INFILTR_QUARRY_WORKERS", "10"))
 
-# Tier 1: passive/safe fingerprint + exposure + known-CVE detection (non-intrusive).
+# Tier 1: passive/safe fingerprint + exposure + known-CVE detection + read-only
+# recon. subfinder/dnsx enumerate subdomains; Quarry stores those as asset
+# PROPOSALS (a human verifies before any scan), so recon never expands scope.
 _TIER1 = ["httpx", "whatweb", "nmap", "naabu", "nuclei", "sslscan", "testssl",
           "wafw00f", "headers", "secrets", "jslibs", "katana", "gowitness", "enum4linux",
-          "takeover", "jwt_audit"]
+          "takeover", "jwt_audit", "subfinder", "dnsx", "apidocs", "buckets"]
 # Tier 2: + low-impact active (content discovery, XSS detection, web-server checks).
 _TIER2_EXTRA = ["dalfox", "gobuster", "ffuf", "feroxbuster", "wfuzz", "nikto", "zap",
                 "openredirect", "idor", "ssrf", "sqli_detect", "graphql"]
-# Never delegated: scope-expanding recon or intrusive/state-changing tools.
-_NEVER = {"hydra", "metasploit", "sqlmap", "masscan", "subfinder", "theharvester", "dnsx"}
+# Never delegated: intrusive / state-changing / credential attacks.
+_NEVER = {"hydra", "metasploit", "sqlmap", "masscan", "theharvester"}
 
 
 class QuarryProfile(BaseModel):
@@ -175,7 +177,7 @@ _VULN_CLASS = {
     "takeover": "subdomain-takeover", "open_redirect": "open-redirect",
     "idor": "idor", "ssrf": "ssrf",
     "sqli": "sqli", "graphql_introspection": "graphql-introspection",
-    "jwt_weakness": "jwt-weakness",
+    "jwt_weakness": "jwt-weakness", "apidocs": "exposed-api-docs",
 }
 
 
@@ -226,6 +228,7 @@ _CONFIDENCE = {
     "sqli": 0.85,         # error-based: DB error surfaced only with the payload
     "graphql_introspection": 0.7,  # schema returned — definitive, but often low-impact
     "jwt_weakness": 0.7,  # alg:none / no-exp on an exposed token
+    "apidocs": 0.75,      # exposed OpenAPI/Swagger spec (verified JSON with paths)
     "zap_alert": 0.7,     # active/passive alert, confidence varies (see per-risk below)
     "secret": 0.7,        # regex match in served JS — can false-positive
     "smb_share": 0.8, "smb_user": 0.8, "smb_group": 0.8,
