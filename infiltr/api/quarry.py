@@ -43,7 +43,7 @@ _TIER1 = ["httpx", "whatweb", "nmap", "naabu", "nuclei", "sslscan", "testssl",
           "takeover", "jwt_audit", "subfinder", "dnsx", "apidocs", "buckets"]
 # Tier 2: + low-impact active (content discovery, XSS detection, web-server checks).
 _TIER2_EXTRA = ["dalfox", "gobuster", "ffuf", "feroxbuster", "wfuzz", "nikto", "zap",
-                "openredirect", "idor", "ssrf", "sqli_detect", "graphql"]
+                "openredirect", "idor", "bac", "tamper", "ssrf", "sqli_detect", "graphql"]
 # Never delegated: intrusive / state-changing / credential attacks.
 _NEVER = {"hydra", "metasploit", "sqlmap", "masscan", "theharvester"}
 
@@ -175,7 +175,7 @@ _VULN_CLASS = {
     "smb_share": "smb-share", "smb_user": "smb-user", "smb_group": "smb-group", "domain": "smb-domain",
     "zap_alert": "zap-alert",
     "takeover": "subdomain-takeover", "open_redirect": "open-redirect",
-    "idor": "idor", "ssrf": "ssrf",
+    "idor": "idor", "bac": "broken-access-control", "tamper": "parameter-tampering", "ssrf": "ssrf",
     "sqli": "sqli", "graphql_introspection": "graphql-introspection",
     "jwt_weakness": "jwt-weakness", "apidocs": "exposed-api-docs",
 }
@@ -224,6 +224,8 @@ _CONFIDENCE = {
     "takeover": 0.72,     # body signature (raised to 0.9 via metadata when CNAME confirms)
     "open_redirect": 0.8, # canary forwarded off-site
     "idor": 0.9,          # attacker retrieved victim's exact private resource
+    "bac": 0.85,          # unauthenticated request got the protected, private body
+    "tamper": 0.6,        # server reflected a negative money/qty value (lead, needs human)
     "ssrf": 0.9,          # confirmed out-of-band callback
     "sqli": 0.85,         # error-based: DB error surfaced only with the payload
     "graphql_introspection": 0.7,  # schema returned — definitive, but often low-impact

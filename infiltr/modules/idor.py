@@ -65,7 +65,7 @@ class IdorWrapper(NativeWrapper):
                 severity=SEV_HIGH,
                 metadata={"url": victim_url, "matched_at": victim_url, "param": id_param or "path",
                           "victim_id": victim_id, "attacker_status": a.get("status"),
-                          "victim_status": v.get("status"), "confidence": 0.9}))
+                          "victim_status": v.get("status"), "confidence": 0.9, "confirmed": True}))
         else:
             findings.append(Finding(type="note", name="idor", value="not vulnerable",
                                     detail="attacker could not retrieve the victim's private resource",
