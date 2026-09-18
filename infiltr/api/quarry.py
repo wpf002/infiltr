@@ -43,7 +43,7 @@ _TIER1 = ["httpx", "whatweb", "nmap", "naabu", "nuclei", "sslscan", "testssl",
           "takeover", "jwt_audit", "subfinder", "dnsx", "apidocs", "buckets"]
 # Tier 2: + low-impact active (content discovery, XSS detection, web-server checks).
 _TIER2_EXTRA = ["dalfox", "gobuster", "ffuf", "feroxbuster", "wfuzz", "nikto", "zap",
-                "openredirect", "idor", "bac", "tamper", "ssrf", "sqli_detect", "graphql"]
+                "openredirect", "idor", "idor_sweep", "bac", "tamper", "ssrf", "sqli_detect", "graphql"]
 # Never delegated: intrusive / state-changing / credential attacks.
 _NEVER = {"hydra", "metasploit", "sqlmap", "masscan", "theharvester"}
 
@@ -122,6 +122,14 @@ def _apply_context(options: dict, context: Any) -> None:
             "victim_id": str(idor.get("victim_id")),
             "id_param": (str(idor["id_param"]) if idor.get("id_param") else None),
         }
+    # The sweep needs only the victim identity; it discovers object ids itself.
+    # Optional seeds (authenticated endpoints Quarry already found) focus the crawl.
+    if isinstance(idor, dict) and idor.get("victim_headers"):
+        sweep = {"victim_headers": _clean_headers(idor.get("victim_headers"))}
+        seeds = idor.get("seeds")
+        if isinstance(seeds, list):
+            sweep["seeds"] = [str(s) for s in seeds if isinstance(s, str) and s.startswith("http")][:200]
+        options["idor_sweep"] = sweep
     ssrf = context.get("ssrf")
     if isinstance(ssrf, dict) and ssrf.get("canary_host"):
         opt = {"canary_host": str(ssrf["canary_host"])}
