@@ -50,6 +50,9 @@ def _is_id_key(k: str) -> bool:
 # id-looking keys inside a JSON object (id, _id, userId, orderId, ...)
 _ID_KEY = re.compile(r"(^id$|_id$|^uuid$|Id$)")
 _HREF = re.compile(r"""(?:href|src|action)=["']([^"']+)["']""", re.I)
+# common locations an OpenAPI/Swagger spec is served at
+_SPEC_PROBE = ["/api-docs/swagger.json", "/swagger.json", "/swagger/v1/swagger.json",
+               "/openapi.json", "/v3/api-docs", "/api-docs"]
 
 
 class IdorSweepWrapper(NativeWrapper):
@@ -75,7 +78,12 @@ class IdorSweepWrapper(NativeWrapper):
                             detail="needs the authenticated scan identity (context.auth.headers)", severity=SEV_INFO)]
 
         host = (urlparse(target).hostname or "").lower()
-        candidates = self._discover(seeds, victim, host, max_urls, timeout)
+        origin = _origin(target)
+        # Turn any OpenAPI/Swagger spec into extra seeds: its parameterized
+        # resources' collections, which the victim crawl then harvests ids from.
+        spec_seeds = self._seed_from_openapi(origin, seeds, victim, host, timeout) \
+            if self.options.get("openapi", True) else []
+        candidates = self._discover(seeds + spec_seeds, victim, host, max_urls, timeout)
 
         findings: list[Finding] = []
         shape_hits: dict[str, int] = {}
@@ -158,8 +166,69 @@ class IdorSweepWrapper(NativeWrapper):
                     queue.append((nxt, depth + 1))
         return out[:max_urls]
 
+    def _seed_from_openapi(self, origin: str, seeds: list[str], victim: dict,
+                           host: str, timeout: int) -> list[str]:
+        """Fetch an OpenAPI/Swagger spec (from a seed or a few common paths) as the
+        victim and return the collection URLs of its parameterized resources."""
+        spec_urls = [s for s in seeds if _same_host(s, host) and _looks_spec_url(s)]
+        spec_urls += [urljoin(origin + "/", p.lstrip("/")) for p in _SPEC_PROBE]
+        out: list[str] = []
+        seen: set[str] = set()
+        for su in spec_urls:
+            if su in seen:
+                continue
+            seen.add(su)
+            r = fetch(su, timeout=timeout, headers=victim)
+            if r.get("status") != 200:
+                continue
+            try:
+                spec = json.loads(r.get("body") or "")
+            except Exception:  # noqa: BLE001
+                continue
+            if not (isinstance(spec, dict) and ("openapi" in spec or "swagger" in spec or "paths" in spec)):
+                continue
+            out = _openapi_collections(spec, origin)
+            if out:
+                break  # one good spec is enough
+        uniq: list[str] = []
+        s2: set[str] = set()
+        for u in out:
+            if _same_host(u, host) and u not in s2:
+                s2.add(u)
+                uniq.append(u)
+        return uniq
+
 
 # ---- pure helpers (unit-tested) ---------------------------------------
+def _origin(url: str) -> str:
+    p = urlparse(url)
+    return f"{p.scheme}://{p.netloc}"
+
+
+def _looks_spec_url(u: str) -> bool:
+    p = urlparse(u).path.lower()
+    return "swagger" in p or "openapi" in p or p.endswith("/api-docs") or p.endswith("/v3/api-docs")
+
+
+def _openapi_collections(spec: dict, origin: str) -> list[str]:
+    """Collection URLs for every parameterized path in an OpenAPI/Swagger spec.
+    /api/Users/{id} -> {origin}/api/Users ; honors swagger 2.0 basePath."""
+    paths = spec.get("paths") if isinstance(spec, dict) else None
+    if not isinstance(paths, dict):
+        return []
+    base = spec.get("basePath") if isinstance(spec.get("basePath"), str) else ""
+    cols: set[str] = set()
+    for path in paths:
+        if not isinstance(path, str) or "{" not in path:
+            continue
+        prefix = path.split("{", 1)[0].rstrip("/")
+        if not prefix:
+            continue
+        rel = (base.rstrip("/") + prefix) if base else prefix
+        cols.add(urljoin(origin + "/", rel.lstrip("/")))
+    return sorted(cols)
+
+
 def _same_host(url: str, host: str) -> bool:
     try:
         h = (urlparse(url).hostname or "").lower()
